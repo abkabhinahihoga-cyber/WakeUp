@@ -129,5 +129,37 @@ class AlarmAudioTest {
         assertEquals("dawn", defaultAlarm.sound)
         assertEquals("Soft dawn", defaultAlarm.soundName)
         assertTrue(Sounds.isBundled(defaultAlarm.sound))
+        assertEquals("none", defaultAlarm.challengeType)
+        assertEquals("easy", defaultAlarm.challengeDifficulty)
+        assertEquals(3, defaultAlarm.challengeQuestions)
+    }
+
+    @Test
+    fun alarmTransitionsPreserveChallengeProperties() {
+        val challengeAlarm = Alarm(
+            nextAt = now,
+            challengeType = "math",
+            challengeDifficulty = "hard",
+            challengeQuestions = 7
+        )
+
+        // Firing preserves challenge
+        val ringing = AlarmTransitions.fire(challengeAlarm, now, false, now)
+        assertNotNull(ringing)
+        assertEquals("math", ringing!!.challengeType)
+        assertEquals("hard", ringing.challengeDifficulty)
+        assertEquals(7, ringing.challengeQuestions)
+
+        // Snoozing preserves challenge
+        val snoozed = AlarmTransitions.finish(ringing, true, now)
+        assertEquals("math", snoozed.challengeType)
+        assertEquals("hard", snoozed.challengeDifficulty)
+        assertEquals(7, snoozed.challengeQuestions)
+
+        // Dismissing preserves challenge
+        val dismissed = AlarmTransitions.finish(ringing, false, now)
+        assertEquals("math", dismissed.challengeType)
+        assertEquals("hard", dismissed.challengeDifficulty)
+        assertEquals(7, dismissed.challengeQuestions)
     }
 }

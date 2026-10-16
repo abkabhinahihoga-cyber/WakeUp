@@ -1,7 +1,6 @@
 package com.aditya.wakeup
 
 import android.content.Intent
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -9,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,12 +19,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
@@ -52,13 +49,17 @@ fun SettingsScreen(
     val defaultSoundName by store.defaultSoundName.collectAsStateWithLifecycle("Soft Dawn")
     val defaultSnooze by store.defaultSnoozeMinutes.collectAsStateWithLifecycle(5)
     val defaultVibrate by store.defaultVibrate.collectAsStateWithLifecycle(true)
-    val updateServerUrl by store.updateServerUrl.collectAsStateWithLifecycle(UpdateManager.DEFAULT_UPDATE_URL)
+    val defaultChallengeType by store.defaultChallengeType.collectAsStateWithLifecycle("none")
+    val defaultChallengeDifficulty by store.defaultChallengeDifficulty.collectAsStateWithLifecycle("easy")
+    val defaultChallengeQuestions by store.defaultChallengeQuestions.collectAsStateWithLifecycle(3)
+    val updateServerUrl by store.updateServerUrl.collectAsStateWithLifecycle("")
 
     val scope = rememberCoroutineScope()
     val updateManager = remember { UpdateManager(activity) }
     var updateState by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
     var downloadedApk by remember { mutableStateOf<File?>(null) }
     var showUrlDialog by remember { mutableStateOf(false) }
+    var showPracticeMathDialog by remember { mutableStateOf(false) }
 
     // Test player state
     var testPlayer by remember { mutableStateOf<SoundResult?>(null) }
@@ -79,7 +80,7 @@ fun SettingsScreen(
         onDispose { stopTestSound() }
     }
 
-    // Permission refresh
+    // Permission refresh observer
     var refreshPermissions by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
@@ -98,580 +99,606 @@ fun SettingsScreen(
 
     val (currentVersionCode, currentVersionName) = remember { updateManager.getCurrentVersion() }
 
+    fun perform(block: suspend () -> Unit) {
+        scope.launch { block() }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             TopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.SemiBold) },
+                title = { Text("Settings", fontWeight = FontWeight.SemiBold, fontSize = 20.sp) },
                 navigationIcon = {
-                    TextButton(onClick = onNavigateBack) {
-                        Text("← Back", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    TextButton(onClick = {
+                        stopTestSound()
+                        onNavigateBack()
+                    }) {
+                        Text("← Back", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                }
             )
         }
-    ) { insets ->
+    ) { inset ->
         val layoutDirection = LocalLayoutDirection.current
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    top = insets.calculateTopPadding(),
-                    start = insets.calculateStartPadding(layoutDirection),
-                    end = insets.calculateEndPadding(layoutDirection)
+                    top = inset.calculateTopPadding(),
+                    start = inset.calculateStartPadding(layoutDirection),
+                    end = inset.calculateEndPadding(layoutDirection)
                 ),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. APPEARANCE
+            // Group 1: Appearance
             item {
-                SettingsSection(title = "APPEARANCE") {
-                    Text("Theme", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Text("Select your preferred visual style", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("System", "Light", "Dark").forEach { mode ->
-                            FilterChip(
-                                selected = theme == mode,
-                                onClick = { scope.launch { store.setTheme(mode) } },
-                                label = { Text(mode) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 2. AUDIO & AMPLIFICATION BOOST (PHASE 2)
-            item {
-                SettingsSection(title = "AUDIO AMPLIFICATION BOOST") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Alarm Audio Boost", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text("Digital gain for maximum speaker audibility", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (audioBoost > 100) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                "$audioBoost% (${AudioBoostManager.formatGainDB(audioBoost)})",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (audioBoost > 100) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-                    Slider(
-                        value = audioBoost.toFloat(),
-                        onValueChange = { value ->
-                            val stepped = (Math.round(value / 10f) * 10).coerceIn(100, 200)
-                            scope.launch { store.setAudioBoost(stepped) }
-                        },
-                        valueRange = 100f..200f,
-                        steps = 9
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("100% (Standard)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("150% (+3.5 dB)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("200% (+6.0 dB Max)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Up to 200% digital amplification is processed through Android's native LoudnessEnhancer engine with peak limiting. Applies across built-in ringtones, custom voice recordings, and imported sounds. Physical loudness also depends on phone alarm volume slider.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 15.sp
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(10.dp))
-
-                    // Test sound with current boost
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Test Audio Output", fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                            Text("Listen to $defaultSoundName at $audioBoost%", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (isTestingSound) {
-                            Button(onClick = { stopTestSound() }) {
-                                Text("⏹ Stop")
-                            }
-                        } else {
-                            OutlinedButton(onClick = {
-                                stopTestSound()
-                                scope.launch {
-                                    val res = withContext(Dispatchers.IO) {
-                                        Sounds.load(activity, defaultSound, defaultSoundName, false, audioBoost)
-                                    }
-                                    testPlayer = res
-                                    isTestingSound = true
-                                    res.player.setOnCompletionListener {
-                                        stopTestSound()
-                                    }
-                                    res.player.start()
-                                }
-                            }) {
-                                Text("▶ Test Boost")
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("APPEARANCE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("System", "Light", "Dark").forEach { mode ->
+                                FilterChip(
+                                    selected = theme == mode,
+                                    onClick = { perform { store.setTheme(mode) } },
+                                    label = { Text(mode, fontSize = 13.sp) }
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // 3. ALARM DEFAULTS
+            // Group 2: Default Alarm Behavior
             item {
-                SettingsSection(title = "ALARM DEFAULTS") {
-                    Text("Default Ringtone", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Text("Currently: $defaultSoundName", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(8.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("DEFAULT ALARM BEHAVIOR", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                    // Category filter for ringtones
-                    var selectedCat by remember { mutableStateOf("All") }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Ringtones.categories.forEach { cat ->
-                            FilterChip(
-                                selected = selectedCat == cat,
-                                onClick = { selectedCat = cat },
-                                label = { Text(cat, fontSize = 12.sp) }
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-                    val filteredRingtones = remember(selectedCat) {
-                        if (selectedCat == "All") Ringtones.items else Ringtones.items.filter { it.category == selectedCat }
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        filteredRingtones.forEach { item ->
-                            val isSelected = defaultSound == item.id
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        scope.launch { store.setDefaultSound(item.id, item.title) }
-                                    }
+                        // Default Tone
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Default ringtone: $defaultSoundName", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            var showToneDropdown by remember { mutableStateOf(false) }
+                            OutlinedButton(
+                                onClick = { showToneDropdown = !showToneDropdown },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(item.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, fontSize = 14.sp)
-                                        Text("${item.category} · ${item.description}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (showToneDropdown) "Hide Tone Choices" else "Change Default Tone ($defaultSoundName)")
+                            }
+                            if (showToneDropdown) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Ringtones.items.forEach { tone ->
+                                        FilterChip(
+                                            selected = defaultSound == tone.id,
+                                            onClick = { perform { store.setDefaultSound(tone.id, tone.title) } },
+                                            label = { Text(tone.title, fontSize = 12.sp) }
+                                        )
                                     }
-                                    RadioButton(
-                                        selected = isSelected,
-                                        onClick = { scope.launch { store.setDefaultSound(item.id, item.title) } }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        // Default Snooze
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Default snooze duration", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5, 10, 15, 20).forEach { minutes ->
+                                    FilterChip(
+                                        selected = defaultSnooze == minutes,
+                                        onClick = { perform { store.setDefaultSnoozeMinutes(minutes) } },
+                                        label = { Text("$minutes min", fontSize = 12.sp) }
                                     )
                                 }
                             }
                         }
+
+                        HorizontalDivider()
+
+                        // Default Vibrate
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Vibrate by default", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Switch(checked = defaultVibrate, onCheckedChange = { v -> perform { store.setDefaultVibrate(v) } })
+                        }
+
+                        HorizontalDivider()
+
+                        // Default Dismissal Challenge
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Default dismissal challenge", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = defaultChallengeType == "none",
+                                    onClick = { perform { store.setDefaultChallenge("none", defaultChallengeDifficulty, defaultChallengeQuestions) } },
+                                    label = { Text("Off (Standard)", fontSize = 12.sp) }
+                                )
+                                FilterChip(
+                                    selected = defaultChallengeType == "math",
+                                    onClick = { perform { store.setDefaultChallenge("math", defaultChallengeDifficulty, defaultChallengeQuestions) } },
+                                    label = { Text("🧠 Math Challenge", fontSize = 12.sp) }
+                                )
+                            }
+                        }
                     }
+                }
+            }
 
-                    Spacer(Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(10.dp))
-
-                    // Default snooze
-                    Text("Default Snooze Duration", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(5, 10, 15, 20).forEach { mins ->
-                            FilterChip(
-                                selected = defaultSnooze == mins,
-                                onClick = { scope.launch { store.setDefaultSnoozeMinutes(mins) } },
-                                label = { Text("$mins min") }
+            // Group 3: Audio Amplification Boost
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("AUDIO AMPLIFICATION BOOST", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$audioBoost% (${AudioBoostManager.formatGainDB(audioBoost)})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
-                    }
 
-                    Spacer(Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Default Vibration", fontWeight = FontWeight.Medium, fontSize = 15.sp)
-                            Text("Vibrate phone during alarms", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(
+                            value = audioBoost.toFloat(),
+                            onValueChange = { newValue ->
+                                val stepped = ((newValue / 10).toInt()) * 10
+                                perform { store.setAudioBoost(stepped) }
+                            },
+                            valueRange = 100f..200f,
+                            steps = 9
+                        )
+
+                        Text(
+                            "Uses Android's native LoudnessEnhancer DSP effect to amplify sound beyond 100%. An integrated limiter protects speaker hardware from harsh clipping.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+
+                        // Interactive Sound Test
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Boost Test: $defaultSoundName", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("Preview volume at $audioBoost%", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+                                if (isTestingSound) {
+                                    Button(onClick = { stopTestSound() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                                        Text("⏹ Stop", fontSize = 13.sp)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = {
+                                            stopTestSound()
+                                            runCatching {
+                                                val res = Sounds.load(activity, defaultSound, defaultSoundName, false, audioBoost)
+                                                testPlayer = res
+                                                isTestingSound = true
+                                                res.player.setOnCompletionListener { stopTestSound() }
+                                                res.player.start()
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) { Text("▶ Test", fontSize = 13.sp) }
+                                }
+                            }
                         }
-                        Switch(
-                            checked = defaultVibrate,
-                            onCheckedChange = { checked -> scope.launch { store.setDefaultVibrate(checked) } }
+                    }
+                }
+            }
+
+            // Group 4: Dismissal Challenges & Practice
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("DISMISSAL CHALLENGES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Prevent accidental alarm dismissal by requiring math problems to be solved before the alarm turns off. Snooze remains available if you need extra rest.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                        OutlinedButton(
+                            onClick = { showPracticeMathDialog = true },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Text("🧠  Practice Math Problem Now", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
+            // Group 5: Permissions & Reliability
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("PERMISSIONS & RELIABILITY", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        fun statusBadge(ok: Boolean) = if (ok) "✓ Granted" else "⚠️ Action Required"
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("Exact Alarms", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text(statusBadge(exactAllowed), fontSize = 11.sp, color = if (exactAllowed) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
+                            }
+                            if (!exactAllowed) {
+                                Button(onClick = { Scheduler(activity).openExactAlarmSettings() }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                    Text("Allow", fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("Notifications", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text(statusBadge(notificationsAllowed), fontSize = 11.sp, color = if (notificationsAllowed) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
+                            }
+                            if (!notificationsAllowed) {
+                                Button(onClick = {
+                                    activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
+                                }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                    Text("Allow", fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("Full-Screen Lock Intent", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text(statusBadge(fullScreenAllowed), fontSize = 11.sp, color = if (fullScreenAllowed) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
+                            }
+                            if (!fullScreenAllowed && Build.VERSION.SDK_INT >= 34) {
+                                Button(onClick = {
+                                    activity.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${activity.packageName}")))
+                                }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                    Text("Allow", fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Text(
+                            "Battery Advice: On Motorola and iQOO devices, set WakeUp's battery usage to 'Unrestricted' in system settings so scheduled alarms fire reliably in deep sleep.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp,
+                            modifier = Modifier.padding(top = 2.dp)
                         )
                     }
                 }
             }
 
-            // 4. PERMISSIONS & RELIABILITY
+            // Group 6: App Updates
             item {
-                SettingsSection(title = "PERMISSIONS & RELIABILITY") {
-                    Text("Verify system readiness for timely alarms", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("APP UPDATES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("v$currentVersionName ($currentVersionCode)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
 
-                    fun openSettings(action: String) {
-                        runCatching {
-                            activity.startActivity(Intent(action, Uri.parse("package:${activity.packageName}")))
-                        }.onFailure {
-                            runCatching {
-                                activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
+                        // Check status / action
+                        when (val state = updateState) {
+                            is UpdateState.Idle -> {
+                                Button(
+                                    onClick = {
+                                        updateState = UpdateState.Checking
+                                        scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Check for Updates")
+                                }
+                            }
+                            is UpdateState.Checking -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("Checking for updates…", fontSize = 13.sp)
+                                }
+                            }
+                            is UpdateState.UpToDate -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("✓", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                                        Text("WakeUp is up to date (v$currentVersionName)", fontSize = 13.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        updateState = UpdateState.Checking
+                                        scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Check Again") }
+                            }
+                            is UpdateState.NotConfigured -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Endpoint Not Configured", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                        Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer, lineHeight = 15.sp)
+                                        Button(
+                                            onClick = { showUrlDialog = true },
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                        ) { Text("Configure Endpoint URL") }
+                                    }
+                                }
+                            }
+                            is UpdateState.Available -> {
+                                Card(
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                                ) {
+                                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("🎉 Update Available: v${state.info.versionName}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        Text("Release notes:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        Text(state.info.releaseNotes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
+
+                                        if (downloadedApk != null) {
+                                            Button(
+                                                onClick = {
+                                                    if (updateManager.canInstallPackages()) {
+                                                        updateManager.launchPackageInstaller(downloadedApk!!)
+                                                    } else {
+                                                        updateManager.openInstallPermissionSettings()
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                            ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    updateState = UpdateState.Downloading(0)
+                                                    scope.launch {
+                                                        runCatching {
+                                                            val file = updateManager.downloadApk(state.info) { progress ->
+                                                                updateState = UpdateState.Downloading(progress)
+                                                            }
+                                                            downloadedApk = file
+                                                            updateState = UpdateState.ReadyToInstall(file)
+                                                        }.onFailure {
+                                                            updateState = UpdateState.Error("Download failed: ${it.message}")
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                            ) { Text("Download Update (${(state.info.apkSizeBytes / 1024 / 1024).coerceAtLeast(1)} MB)") }
+                                        }
+                                    }
+                                }
+                            }
+                            is UpdateState.Downloading -> {
+                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Downloading update: ${state.progressPercent}%", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    LinearProgressIndicator(
+                                        progress = { state.progressPercent / 100f },
+                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                    )
+                                }
+                            }
+                            is UpdateState.ReadyToInstall -> {
+                                Button(
+                                    onClick = {
+                                        if (updateManager.canInstallPackages()) {
+                                            updateManager.launchPackageInstaller(state.apkFile)
+                                        } else {
+                                            updateManager.openInstallPermissionSettings()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
+                            }
+                            is UpdateState.Error -> {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Update Notice", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
+                                        Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer, lineHeight = 15.sp)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            TextButton(onClick = {
+                                                updateState = UpdateState.Checking
+                                                scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
+                                            }) { Text("Retry", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
+                                            TextButton(onClick = { showUrlDialog = true }) { Text("Configure URL", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    PermissionStatusRow(
-                        title = "Exact Alarms",
-                        subtitle = "Required for ringing at the precise scheduled second",
-                        isGranted = exactAllowed,
-                        onFixClick = { Scheduler(activity).openExactAlarmSettings() }
-                    )
-
-                    PermissionStatusRow(
-                        title = "Notifications",
-                        subtitle = "Required to display ringing controls and snooze actions",
-                        isGranted = notificationsAllowed,
-                        onFixClick = {
-                            activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
-                        }
-                    )
-
-                    PermissionStatusRow(
-                        title = "Full-Screen Alarms",
-                        subtitle = "Wakes display and shows full ringing UI over lock screen",
-                        isGranted = fullScreenAllowed,
-                        onFixClick = {
-                            if (Build.VERSION.SDK_INT >= 34) openSettings(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
-                        }
-                    )
-
-                    PermissionStatusRow(
-                        title = "Prominent Ringing Channel",
-                        subtitle = "High importance notification channel for audible ringing",
-                        isGranted = channelReady,
-                        onFixClick = {
-                            activity.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName).putExtra(Settings.EXTRA_CHANNEL_ID, "ringing"))
-                        }
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
-                    Text("Device Optimization Advice", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    Text(
-                        "On Motorola and iQOO devices, ensure WakeUp's battery setting is set to 'Unrestricted' so background execution is not paused during deep sleep. Reopen WakeUp once after a phone reboot to guarantee alarm restore.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 15.sp
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS) }) {
-                            Text("App Info & Battery", fontSize = 12.sp)
-                        }
-                        OutlinedButton(onClick = { activity.startActivity(Intent(Settings.ACTION_SOUND_SETTINGS)) }) {
-                            Text("System Sound Settings", fontSize = 12.sp)
-                        }
+                        TextButton(
+                            onClick = { showUrlDialog = true },
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) { Text("Configure Manifest Endpoint URL", fontSize = 12.sp) }
                     }
                 }
             }
 
-            // 5. APP UPDATES & ABOUT (PHASE 4)
+            // Group 7: About & Diagnostics
             item {
-                SettingsSection(title = "APP & UPDATES") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("WakeUp Alarm App", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Version $currentVersionName (Build $currentVersionCode)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                "v$currentVersionName",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("ABOUT & PRIVACY", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "WakeUp is a dedicated personal alarm application engineered for Aditya. Designed with 100% on-device local storage, zero telemetry, zero analytics, and zero advertising. All custom audio recordings and alarms remain strictly private on this device.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
                     }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    when (val state = updateState) {
-                        is UpdateState.Idle -> {
-                            Button(
-                                onClick = {
-                                    updateState = UpdateState.Checking
-                                    scope.launch {
-                                        updateState = updateManager.checkForUpdates(updateServerUrl)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Check for Updates")
-                            }
-                        }
-                        is UpdateState.Checking -> {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Checking update server…", fontSize = 14.sp)
-                            }
-                        }
-                        is UpdateState.UpToDate -> {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text("✓ You're up to date", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
-                                    Text("WakeUp $currentVersionName is the latest release.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = {
-                                updateState = UpdateState.Checking
-                                scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
-                            }) {
-                                Text("Check again")
-                            }
-                        }
-                        is UpdateState.Available -> {
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                            ) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("🎉 Update Available: v${state.info.versionName}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                    Text("Release Notes:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                    Text(state.info.releaseNotes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
-
-                                    Spacer(Modifier.height(4.dp))
-                                    if (downloadedApk != null) {
-                                        Button(
-                                            onClick = {
-                                                if (updateManager.canInstallPackages()) {
-                                                    updateManager.launchPackageInstaller(downloadedApk!!)
-                                                } else {
-                                                    updateManager.openInstallPermissionSettings()
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(if (updateManager.canInstallPackages()) "Install Update" else "Allow Install Permission")
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = {
-                                                updateState = UpdateState.Downloading(0)
-                                                scope.launch {
-                                                    runCatching {
-                                                        val file = updateManager.downloadApk(state.info) { progress ->
-                                                            updateState = UpdateState.Downloading(progress)
-                                                        }
-                                                        downloadedApk = file
-                                                        updateState = UpdateState.ReadyToInstall(file)
-                                                    }.onFailure {
-                                                        updateState = UpdateState.Error("Download failed: ${it.message}")
-                                                    }
-                                                }
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("Download and Install")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        is UpdateState.Downloading -> {
-                            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Downloading update: ${state.progressPercent}%", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                LinearProgressIndicator(
-                                    progress = { state.progressPercent / 100f },
-                                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
-                                )
-                            }
-                        }
-                        is UpdateState.ReadyToInstall -> {
-                            Button(
-                                onClick = {
-                                    if (updateManager.canInstallPackages()) {
-                                        updateManager.launchPackageInstaller(state.apkFile)
-                                    } else {
-                                        updateManager.openInstallPermissionSettings()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission")
-                            }
-                        }
-                        is UpdateState.Error -> {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Update Check Notice", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
-                                    Text(state.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-                                    Row {
-                                        TextButton(onClick = {
-                                            updateState = UpdateState.Checking
-                                            scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
-                                        }) {
-                                            Text("Retry", color = MaterialTheme.colorScheme.onErrorContainer)
-                                        }
-                                        TextButton(onClick = { showUrlDialog = true }) {
-                                            Text("Configure URL", color = MaterialTheme.colorScheme.onErrorContainer)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    TextButton(onClick = { showUrlDialog = true }) {
-                        Text("Configure Update Endpoint URL", fontSize = 12.sp)
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(10.dp))
-
-                    Text("About WakeUp & Privacy", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text(
-                        "WakeUp is a dedicated personal alarm clock engineered for Aditya. Designed with 100% on-device local storage, zero telemetry, zero analytics, and zero advertising. All custom audio recordings and alarms remain strictly private on this device.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 16.sp
-                    )
                 }
             }
         }
     }
 
+    // Configure URL Dialog with Sample JSON Manifest
     if (showUrlDialog) {
         var tempUrl by remember { mutableStateOf(updateServerUrl) }
+        val clipboard = LocalClipboardManager.current
+
         AlertDialog(
             onDismissRequest = { showUrlDialog = false },
-            title = { Text("Update Server Manifest URL") },
+            title = { Text("Update Endpoint Configuration") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Specify an HTTPS JSON endpoint returning versionCode, versionName, releaseNotes, and downloadUrl.", fontSize = 12.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Set an HTTPS endpoint returning your version manifest JSON (e.g., GitHub Releases raw link or private S3 bucket).",
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
                     OutlinedTextField(
                         value = tempUrl,
                         onValueChange = { tempUrl = it },
-                        label = { Text("Server URL") },
-                        singleLine = false,
+                        label = { Text("Manifest URL") },
+                        placeholder = { Text("https://example.com/version.json") },
+                        singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    TextButton(onClick = { tempUrl = UpdateManager.DEFAULT_UPDATE_URL }) {
-                        Text("Reset to default")
+                    Text("Expected Manifest Format:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            UpdateManager.SAMPLE_MANIFEST_JSON,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(8.dp),
+                            lineHeight = 13.sp
+                        )
                     }
+                    Button(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(UpdateManager.SAMPLE_MANIFEST_JSON))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Copy Sample JSON to Clipboard", fontSize = 12.sp) }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    scope.launch { store.setUpdateServerUrl(tempUrl) }
+                    perform { store.setUpdateServerUrl(tempUrl) }
                     showUrlDialog = false
                     updateState = UpdateState.Idle
-                }) {
-                    Text("Save")
-                }
+                }) { Text("Save") }
             },
             dismissButton = {
                 TextButton(onClick = { showUrlDialog = false }) { Text("Cancel") }
             }
         )
     }
-}
 
-@Composable
-private fun SettingsSection(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(18.dp),
-            content = content
+    // Practice Math Challenge Dialog
+    if (showPracticeMathDialog) {
+        var problem by remember { mutableStateOf(MathChallenge.generateProblem(defaultChallengeDifficulty)) }
+        var userAnswer by remember { mutableStateOf("") }
+        var resultText by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { showPracticeMathDialog = false },
+            title = { Text("🧠 Practice Math Challenge") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Solve this sample problem exactly as it appears when an alarm rings:",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "${problem.questionText} = ?",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedTextField(
+                        value = userAnswer,
+                        onValueChange = { userAnswer = it; resultText = null },
+                        placeholder = { Text("Your answer") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(0.7f)
+                    )
+                    resultText?.let {
+                        Text(it, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (it.startsWith("✓")) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (MathChallenge.isAnswerCorrect(problem, userAnswer)) {
+                        resultText = "✓ Correct! Next problem generated."
+                        userAnswer = ""
+                        problem = MathChallenge.generateProblem(defaultChallengeDifficulty)
+                    } else {
+                        resultText = "Incorrect, try again!"
+                    }
+                }) { Text("Submit") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPracticeMathDialog = false }) { Text("Close") }
+            }
         )
-    }
-}
-
-@Composable
-private fun PermissionStatusRow(
-    title: String,
-    subtitle: String,
-    isGranted: Boolean,
-    onFixClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (isGranted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
-                )
-                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (!isGranted) {
-            TextButton(onClick = onFixClick) {
-                Text("Allow", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-            }
-        } else {
-            Text("Ready", fontSize = 12.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium, modifier = Modifier.padding(end = 8.dp))
-        }
     }
 }

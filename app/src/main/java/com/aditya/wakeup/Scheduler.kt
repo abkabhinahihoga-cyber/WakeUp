@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class Scheduler(private val context: Context) {
@@ -74,7 +75,17 @@ class AlarmReceiver : BroadcastReceiver() {
                     "FIRE" -> if (context.app.store.fire(id, intent.getLongExtra("at", 0), intent.getBooleanExtra("snooze", false))) {
                         ContextCompat.startForegroundService(context, Intent(context, AlarmService::class.java))
                     }
-                    "DISMISS" -> context.app.store.finish(id, false)
+                    "DISMISS" -> {
+                        val alarm = context.app.store.alarms.first().firstOrNull { it.id == id }
+                        if (alarm?.challengeType == "math") {
+                            val open = Intent(context, AlarmActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            }
+                            context.startActivity(open)
+                        } else {
+                            context.app.store.finish(id, false)
+                        }
+                    }
                     "SNOOZE" -> context.app.store.finish(id, Scheduler(context).allowed())
                 }
             } finally { pending.finish() }

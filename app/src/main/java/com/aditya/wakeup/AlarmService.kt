@@ -265,7 +265,11 @@ class AlarmService : Service() {
             fun action(name: String): PendingIntent = PendingIntent.getBroadcast(this, 0,
                 Intent(this, AlarmReceiver::class.java).setAction(name).setData(Uri.parse("wakeup://action/${a.id}/$name")).putExtra("id", a.id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             if (Scheduler(this).allowed()) builder.addAction(0, "Snooze ${a.snoozeMinutes} min", action("SNOOZE"))
-            builder.addAction(0, "Dismiss", action("DISMISS"))
+            if (a.challengeType == "math") {
+                builder.addAction(0, "Solve Math to Dismiss", screen)
+            } else {
+                builder.addAction(0, "Dismiss", action("DISMISS"))
+            }
         }
         return builder.build()
     }

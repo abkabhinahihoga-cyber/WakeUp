@@ -12,7 +12,10 @@ data class Alarm(
     val sound: String = "dawn", val soundName: String = "Soft dawn",
     val snoozeMinutes: Int = 5, val vibrate: Boolean = true,
     val nextAt: Long = 0, val snoozeAt: Long = 0, val ringing: Boolean = false,
-    val ringingSince: Long = 0
+    val ringingSince: Long = 0,
+    val challengeType: String = "none",
+    val challengeDifficulty: String = "easy",
+    val challengeQuestions: Int = 3
 )
 
 object AlarmTime {

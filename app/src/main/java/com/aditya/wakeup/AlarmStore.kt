@@ -29,6 +29,9 @@ class AlarmStore(private val context: Context) {
     private val defaultSoundNameKey = stringPreferencesKey("default_sound_name")
     private val defaultSnoozeKey = intPreferencesKey("default_snooze")
     private val defaultVibrateKey = booleanPreferencesKey("default_vibrate")
+    private val defaultChallengeTypeKey = stringPreferencesKey("default_challenge_type")
+    private val defaultChallengeDifficultyKey = stringPreferencesKey("default_challenge_difficulty")
+    private val defaultChallengeQuestionsKey = intPreferencesKey("default_challenge_questions")
     private val updateServerUrlKey = stringPreferencesKey("update_server_url")
 
     private val mutex = Mutex()
@@ -40,8 +43,11 @@ class AlarmStore(private val context: Context) {
     val defaultSoundName = context.dataStore.data.map { it[defaultSoundNameKey] ?: "Soft Dawn" }
     val defaultSnoozeMinutes = context.dataStore.data.map { it[defaultSnoozeKey] ?: 5 }
     val defaultVibrate = context.dataStore.data.map { it[defaultVibrateKey] ?: true }
+    val defaultChallengeType = context.dataStore.data.map { it[defaultChallengeTypeKey] ?: "none" }
+    val defaultChallengeDifficulty = context.dataStore.data.map { it[defaultChallengeDifficultyKey] ?: "easy" }
+    val defaultChallengeQuestions = context.dataStore.data.map { it[defaultChallengeQuestionsKey] ?: 3 }
     val updateServerUrl = context.dataStore.data.map {
-        it[updateServerUrlKey] ?: "https://raw.githubusercontent.com/aditya/wakeup-alarm/main/version.json"
+        it[updateServerUrlKey] ?: ""
     }
 
     suspend fun setTheme(value: String) { context.dataStore.edit { it[themeKey] = value } }
@@ -49,7 +55,14 @@ class AlarmStore(private val context: Context) {
     suspend fun setDefaultSound(sound: String, name: String) { context.dataStore.edit { it[defaultSoundKey] = sound; it[defaultSoundNameKey] = name } }
     suspend fun setDefaultSnoozeMinutes(minutes: Int) { context.dataStore.edit { it[defaultSnoozeKey] = minutes } }
     suspend fun setDefaultVibrate(vibrate: Boolean) { context.dataStore.edit { it[defaultVibrateKey] = vibrate } }
-    suspend fun setUpdateServerUrl(url: String) { context.dataStore.edit { it[updateServerUrlKey] = url } }
+    suspend fun setDefaultChallenge(type: String, difficulty: String, questions: Int) {
+        context.dataStore.edit {
+            it[defaultChallengeTypeKey] = type
+            it[defaultChallengeDifficultyKey] = difficulty
+            it[defaultChallengeQuestionsKey] = questions.coerceIn(3, 10)
+        }
+    }
+    suspend fun setUpdateServerUrl(url: String) { context.dataStore.edit { it[updateServerUrlKey] = url.trim() } }
 
     private suspend fun change(block: (List<Alarm>) -> List<Alarm>) = mutex.withLock {
         context.dataStore.edit { prefs -> prefs[key] = encode(block(decode(prefs[key] ?: "[]"))) }
@@ -83,15 +96,31 @@ class AlarmStore(private val context: Context) {
         put("id", a.id); put("hour", a.hour); put("minute", a.minute); put("label", a.label)
         put("days", JSONArray(a.days.sorted())); put("enabled", a.enabled); put("sound", a.sound); put("soundName", a.soundName)
         put("snoozeMinutes", a.snoozeMinutes); put("vibrate", a.vibrate); put("nextAt", a.nextAt); put("snoozeAt", a.snoozeAt); put("ringing", a.ringing); put("ringingSince", a.ringingSince)
+        put("challengeType", a.challengeType); put("challengeDifficulty", a.challengeDifficulty); put("challengeQuestions", a.challengeQuestions)
     }) } }.toString()
     private fun decode(raw: String): List<Alarm> {
         val array = JSONArray(raw)
         return (0 until array.length()).map { index ->
             val a = array.getJSONObject(index); val days = a.getJSONArray("days")
-            Alarm(a.getString("id"), a.getInt("hour"), a.getInt("minute"), a.getString("label"),
-                (0 until days.length()).map { days.getInt(it) }.toSet(), a.getBoolean("enabled"),
-                a.getString("sound"), a.getString("soundName"), a.getInt("snoozeMinutes"), a.getBoolean("vibrate"),
-                a.optLong("nextAt"), a.optLong("snoozeAt"), a.optBoolean("ringing"), a.optLong("ringingSince"))
+            Alarm(
+                id = a.getString("id"),
+                hour = a.getInt("hour"),
+                minute = a.getInt("minute"),
+                label = a.getString("label"),
+                days = (0 until days.length()).map { days.getInt(it) }.toSet(),
+                enabled = a.getBoolean("enabled"),
+                sound = a.getString("sound"),
+                soundName = a.getString("soundName"),
+                snoozeMinutes = a.getInt("snoozeMinutes"),
+                vibrate = a.getBoolean("vibrate"),
+                nextAt = a.optLong("nextAt"),
+                snoozeAt = a.optLong("snoozeAt"),
+                ringing = a.optBoolean("ringing"),
+                ringingSince = a.optLong("ringingSince"),
+                challengeType = a.optString("challengeType", "none"),
+                challengeDifficulty = a.optString("challengeDifficulty", "easy"),
+                challengeQuestions = a.optInt("challengeQuestions", 3)
+            )
         }
     }
 }

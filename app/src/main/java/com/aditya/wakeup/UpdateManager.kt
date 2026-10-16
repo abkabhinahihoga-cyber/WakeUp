@@ -28,6 +28,7 @@ data class UpdateInfo(
 sealed interface UpdateState {
     data object Idle : UpdateState
     data object Checking : UpdateState
+    data class NotConfigured(val message: String) : UpdateState
     data class Available(val info: UpdateInfo, val currentCode: Int, val currentName: String) : UpdateState
     data class UpToDate(val currentCode: Int, val currentName: String) : UpdateState
     data class Downloading(val progressPercent: Int) : UpdateState
@@ -38,7 +39,17 @@ sealed interface UpdateState {
 class UpdateManager(private val context: Context) {
     companion object {
         private const val TAG = "WakeUpUpdateManager"
-        const val DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/aditya/wakeup-alarm/main/version.json"
+        const val PLACEHOLDER_URL_HOST = "raw.githubusercontent.com/aditya/wakeup-alarm"
+
+        val SAMPLE_MANIFEST_JSON = """
+            {
+              "versionCode": 6,
+              "versionName": "1.5.0",
+              "releaseNotes": "• Simplified, clutter-free dashboard\n• Math dismissal challenge\n• Reliable in-app update installer",
+              "downloadUrl": "https://example.com/WakeUp-1.5.0-debug.apk",
+              "apkSizeBytes": 15000000
+            }
+        """.trimIndent()
 
         fun isUpdateAvailable(currentCode: Int, remoteCode: Int): Boolean = remoteCode > currentCode
 
@@ -52,7 +63,7 @@ class UpdateManager(private val context: Context) {
             size: Long
         ): UpdateState {
             if (remoteCode <= 0 || downloadUrl.isBlank()) {
-                return UpdateState.Error("Invalid update manifest received from server.")
+                return UpdateState.Error("Invalid update manifest received from server: missing versionCode or downloadUrl.")
             }
 
             return if (isUpdateAvailable(currentCode, remoteCode)) {
@@ -82,6 +93,41 @@ class UpdateManager(private val context: Context) {
                 evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size)
             }
         }
+
+        /**
+         * Connects to a URL following up to [maxRedirects] redirects (HTTP 301, 302, 303, 307, 308).
+         * Necessary for GitHub Releases and cloud CDNs which issue 302/307 redirects to storage blobs.
+         */
+        private fun openConnectionWithRedirects(urlString: String, maxRedirects: Int = 5): HttpURLConnection {
+            var currentUrl = urlString
+            var redirects = 0
+            while (redirects < maxRedirects) {
+                val url = URL(currentUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 25000
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "WakeUp-Android")
+                }
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (location.isNullOrBlank()) {
+                        throw IllegalStateException("HTTP redirect received ($code) with no Location header.")
+                    }
+                    currentUrl = if (location.startsWith("http://") || location.startsWith("https://")) {
+                        location
+                    } else {
+                        URL(url, location).toString()
+                    }
+                    redirects++
+                } else {
+                    return conn
+                }
+            }
+            throw IllegalStateException("Too many HTTP redirects ($redirects) while connecting to $urlString")
+        }
     }
 
     fun getCurrentVersion(): Pair<Int, String> {
@@ -97,28 +143,36 @@ class UpdateManager(private val context: Context) {
             @Suppress("DEPRECATION")
             pInfo.versionCode
         }
-        val name = pInfo.versionName ?: "1.3.0"
+        val name = pInfo.versionName ?: "1.5.0"
         return code to name
     }
 
-    suspend fun checkForUpdates(serverUrl: String = DEFAULT_UPDATE_URL): UpdateState = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdates(serverUrl: String): UpdateState = withContext(Dispatchers.IO) {
+        val trimmed = serverUrl.trim()
+        if (trimmed.isBlank() || trimmed.contains(PLACEHOLDER_URL_HOST)) {
+            return@withContext UpdateState.NotConfigured(
+                "No update server URL is configured. Tap 'Configure URL' below to set your update manifest endpoint (e.g. your GitHub Releases raw JSON or S3 bucket)."
+            )
+        }
+
         val (currentCode, currentName) = getCurrentVersion()
         try {
-            val url = URL(serverUrl.trim())
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 8000
+            val conn = openConnectionWithRedirects(trimmed)
+            conn.apply {
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "WakeUp-Android/${currentName}")
+                setRequestProperty("User-Agent", "WakeUp-Android/$currentName")
             }
 
             val status = conn.responseCode
             if (status !in 200..299) {
-                return@withContext UpdateState.Error("Server returned error code $status. Check the update endpoint URL in settings.")
+                return@withContext UpdateState.Error(
+                    "Server returned error code $status. Please ensure your update manifest JSON is hosted and accessible at this URL."
+                )
             }
 
             val rawJson = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
             parseManifest(rawJson, currentCode, currentName)
         } catch (e: UnknownHostException) {
             Log.w(TAG, "Network unavailable during update check: ${e.message}")
@@ -132,11 +186,10 @@ class UpdateManager(private val context: Context) {
     suspend fun downloadApk(info: UpdateInfo, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val targetFile = File(dir, "WakeUp-${info.versionName}.apk")
+        if (targetFile.exists()) targetFile.delete()
 
-        val url = URL(info.downloadUrl)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000
-            readTimeout = 30000
+        val conn = openConnectionWithRedirects(info.downloadUrl)
+        conn.apply {
             requestMethod = "GET"
         }
 
@@ -161,10 +214,23 @@ class UpdateManager(private val context: Context) {
                 }
             }
         }
+        conn.disconnect()
 
         require(targetFile.exists() && targetFile.length() > 50_000L) {
-            "Downloaded file appears incomplete or corrupted (${targetFile.length()} bytes)."
+            "Downloaded file appears incomplete (${targetFile.length()} bytes)."
         }
+
+        // Validate package integrity using Android's PackageManager
+        val archiveInfo = context.packageManager.getPackageArchiveInfo(targetFile.absolutePath, 0)
+        require(archiveInfo != null) {
+            targetFile.delete()
+            "Downloaded file is not a valid Android APK package."
+        }
+        require(archiveInfo.packageName == context.packageName) {
+            targetFile.delete()
+            "Security verification failed: downloaded APK package name '${archiveInfo.packageName}' does not match '${context.packageName}'."
+        }
+
         targetFile
     }
 
@@ -183,6 +249,13 @@ class UpdateManager(private val context: Context) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+
+        // Grant URI read permission to all resolving package installer activities
+        val resolveList = context.packageManager.queryIntentActivities(installIntent, PackageManager.MATCH_DEFAULT_ONLY)
+        for (resolveInfo in resolveList) {
+            context.grantUriPermission(resolveInfo.activityInfo.packageName, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
         context.startActivity(installIntent)
     }
 
