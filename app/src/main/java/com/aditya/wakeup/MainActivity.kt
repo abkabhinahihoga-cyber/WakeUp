@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
+import java.io.FileInputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -265,8 +266,32 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
         val file = recordingFile
         val success = runCatching { current.stop() }.isSuccess
         current.release(); recorder = null; recordingFile = null
-        if (keep && success && file != null) alarm = alarm.copy(sound = file.name, soundName = "My voice")
-        else { file?.delete(); if (keep) message = "Recording was too short. Please try again." }
+        if (keep && success && file != null && file.exists() && file.length() > 512L) {
+            file.setReadable(true, false)
+            val isValid = runCatching {
+                val testPlayer = MediaPlayer()
+                try {
+                    FileInputStream(file).use { fis ->
+                        testPlayer.setDataSource(fis.fd, 0, file.length())
+                    }
+                    testPlayer.prepare()
+                    testPlayer.duration > 0
+                } finally {
+                    testPlayer.release()
+                }
+            }.getOrDefault(false)
+
+            if (isValid) {
+                alarm = alarm.copy(sound = file.name, soundName = "My voice")
+                message = null
+            } else {
+                file.delete()
+                message = "Recorded audio was unreadable. Please record again."
+            }
+        } else {
+            file?.delete()
+            if (keep) message = "Recording was too short. Please speak clearly and try again."
+        }
     }
     fun startRecording() {
         preview?.release(); preview = null
@@ -297,8 +322,17 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                             val buffer = ByteArray(8192); var total = 0
                             while (true) { val count = input.read(buffer); if (count < 0) break; total += count; require(total <= 25 * 1024 * 1024) { "Choose an audio file smaller than 25 MB." }; output.write(buffer, 0, count) }
                         } }
+                        file.setReadable(true, false)
                         val check = MediaPlayer()
-                        try { check.setDataSource(file.absolutePath); check.prepare(); require(check.duration > 0) { "This audio file is empty." } } finally { check.release() }
+                        try {
+                            FileInputStream(file).use { fis ->
+                                check.setDataSource(fis.fd, 0, file.length())
+                            }
+                            check.prepare()
+                            require(check.duration > 0) { "This audio file is empty." }
+                        } finally {
+                            check.release()
+                        }
                         file.name to name
                     } catch (e: Exception) { file.delete(); throw e }
                 }
@@ -369,7 +403,23 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
             item {
                 Text("Selected: ${alarm.soundName}", fontWeight = FontWeight.Medium)
                 Row {
-                    TextButton(enabled = recorder == null && !busy, onClick = { preview?.release(); preview = null; runCatching { Sounds.player(activity, alarm.sound, false).also { preview = it; it.start() } }.onFailure { message = "Unable to preview this sound." } }) { Text("Preview") }
+                    TextButton(enabled = recorder == null && !busy, onClick = {
+                        preview?.release()
+                        preview = null
+                        runCatching {
+                            val res = Sounds.load(activity, alarm.sound, alarm.soundName, false)
+                            if (res.isFallback && !Sounds.isBundled(alarm.sound)) {
+                                message = "Custom audio unavailable (${res.fallbackReason ?: "error"}). Playing fallback."
+                            } else {
+                                message = null
+                            }
+                            res.player.also {
+                                preview = it
+                                it.setOnCompletionListener { p -> p.release(); if (preview == p) preview = null }
+                                it.start()
+                            }
+                        }.onFailure { message = "Unable to preview sound: ${it.message}" }
+                    }) { Text("Preview") }
                     TextButton(onClick = { preview?.release(); preview = null }) { Text("Stop") }
                     TextButton(enabled = recorder == null && !busy, onClick = { import.launch(arrayOf("audio/*")) }) { Text(if (busy) "Importing…" else "Import audio") }
                 }

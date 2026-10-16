@@ -36,6 +36,7 @@ class AlarmActivity : ComponentActivity() {
             WakeUpTheme("Dark") {
                 val alarms by app.store.alarms.collectAsState(initial = null)
                 val alarm = alarms?.firstOrNull { it.ringing }
+                val fallbackNotice by AlarmService.currentFallbackNotice.collectAsState()
                 LaunchedEffect(alarms) { if (alarms != null && alarm == null) finish() }
                 var time by remember { mutableStateOf(LocalTime.now()) }
                 LaunchedEffect(Unit) { while (true) { time = LocalTime.now(); delay(1000) } }
@@ -49,6 +50,9 @@ class AlarmActivity : ComponentActivity() {
                         Text("A new day is yours.", color = Color(0xFFCED8C6), fontSize = 19.sp)
                         Text(time.format(DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH)), fontSize = 54.sp, fontWeight = FontWeight.Light, color = Color.White)
                         Text(alarm?.label ?: "WakeUp", fontSize = 24.sp, color = Color.White)
+                        if (fallbackNotice != null) {
+                            Text("Custom audio unavailable · Playing Soft dawn", color = Color(0xFFFFB74D), fontSize = 13.sp)
+                        }
                         val count = alarms?.count { it.ringing } ?: 0
                         if (count > 1) Text("$count alarms ringing · handled one at a time", color = Color(0xFFCED8C6))
                     }
