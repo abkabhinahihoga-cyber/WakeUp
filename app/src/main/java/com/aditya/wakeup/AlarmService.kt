@@ -4,6 +4,8 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -71,8 +73,14 @@ object Sounds {
 
         try {
             val mp = MediaPlayer().apply {
-                setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
                 isLooping = loop
+                setVolume(1.0f, 1.0f)
                 FileInputStream(file).use { fis ->
                     setDataSource(fis.fd, 0, file.length())
                 }
@@ -88,8 +96,14 @@ object Sounds {
     }
 
     private fun createRawPlayer(context: Context, resId: Int, loop: Boolean): MediaPlayer = MediaPlayer().apply {
-        setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+        setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        )
         isLooping = loop
+        setVolume(1.0f, 1.0f)
         context.resources.openRawResourceFd(resId).use { afd ->
             setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
         }
@@ -109,8 +123,14 @@ object Sounds {
         val sysUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val sysPlayer = MediaPlayer().apply {
-            setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
             isLooping = loop
+            setVolume(1.0f, 1.0f)
             setDataSource(context, sysUri)
             prepare()
         }
@@ -133,7 +153,11 @@ class AlarmService : Service() {
     private var observing = false
     private var currentAlarm: Alarm? = null
     private val vibrator by lazy { getSystemService(Vibrator::class.java) }
+    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
+    private var focusRequest: AudioFocusRequest? = null
+
     override fun onBind(intent: Intent?) = null
+
     override fun onCreate() {
         super.onCreate()
         val channel = NotificationChannel("ringing", "Ringing alarms", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -142,6 +166,41 @@ class AlarmService : Service() {
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
+
+    private fun requestAlarmAudioFocus() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attributes)
+                .setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener { /* maintain alarm focus */ }
+                .build()
+            focusRequest = req
+            val res = audioManager.requestAudioFocus(req)
+            Log.i("WakeUpSounds", "Alarm audio focus requested (API >= 26), result=$res")
+        } else {
+            @Suppress("DEPRECATION")
+            val res = audioManager.requestAudioFocus(null, AudioManager.STREAM_ALARM, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            Log.i("WakeUpSounds", "Alarm audio focus requested (legacy), result=$res")
+        }
+    }
+
+    private fun abandonAlarmAudioFocus() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            focusRequest?.let {
+                audioManager.abandonAudioFocusRequest(it)
+                focusRequest = null
+                Log.i("WakeUpSounds", "Alarm audio focus abandoned")
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(41, notification(currentAlarm, false))
         if (!observing) {
@@ -153,6 +212,7 @@ class AlarmService : Service() {
                     if (alarm == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
                     else {
                         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WakeUp:ring").apply { acquire(11 * 60_000L) }
+                        requestAlarmAudioFocus()
                         val soundResult = withContext(Dispatchers.IO) {
                             Sounds.load(this@AlarmService, alarm.sound, alarm.soundName, true)
                         }
@@ -171,6 +231,7 @@ class AlarmService : Service() {
         }
         return START_STICKY
     }
+
     private fun notification(a: Alarm?, isFallback: Boolean): Notification {
         val screen = PendingIntent.getActivity(this, 0, Intent(this, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val text = if (isFallback) "Custom audio unavailable · Playing Soft dawn" else "Time to start your day, Aditya"
@@ -187,10 +248,13 @@ class AlarmService : Service() {
         }
         return builder.build()
     }
+
     private fun stopSound() {
         currentFallbackNotice.value = null
+        abandonAlarmAudioFocus()
         timeout?.cancel(); player?.release(); player = null; vibrator.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null
     }
+
     override fun onDestroy() { stopSound(); scope.cancel(); super.onDestroy() }
 }

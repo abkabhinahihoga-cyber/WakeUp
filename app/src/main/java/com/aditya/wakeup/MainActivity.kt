@@ -59,6 +59,7 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        volumeControlStream = android.media.AudioManager.STREAM_ALARM
         enableEdgeToEdge()
         setContent {
             val theme by app.store.theme.collectAsStateWithLifecycle("System")
@@ -920,7 +921,13 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                                             stopPreview()
                                                             runCatching {
                                                                 val mp = MediaPlayer().apply {
-                                                                    setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                                                                    setAudioAttributes(
+                                                                        AudioAttributes.Builder()
+                                                                            .setUsage(AudioAttributes.USAGE_ALARM)
+                                                                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                                                            .build()
+                                                                    )
+                                                                    setVolume(1.0f, 1.0f)
                                                                     FileInputStream(state.file).use { fis ->
                                                                         setDataSource(fis.fd, 0, state.file.length())
                                                                     }
