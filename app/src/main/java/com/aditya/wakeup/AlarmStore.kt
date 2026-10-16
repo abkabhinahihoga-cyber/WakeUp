@@ -2,8 +2,7 @@ package com.aditya.wakeup
 
 import android.app.Application
 import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,10 +24,33 @@ val Context.app: WakeUpApp get() = applicationContext as WakeUpApp
 class AlarmStore(private val context: Context) {
     private val key = stringPreferencesKey("alarms_v1")
     private val themeKey = stringPreferencesKey("theme")
+    private val audioBoostKey = intPreferencesKey("audio_boost")
+    private val defaultSoundKey = stringPreferencesKey("default_sound")
+    private val defaultSoundNameKey = stringPreferencesKey("default_sound_name")
+    private val defaultSnoozeKey = intPreferencesKey("default_snooze")
+    private val defaultVibrateKey = booleanPreferencesKey("default_vibrate")
+    private val updateServerUrlKey = stringPreferencesKey("update_server_url")
+
     private val mutex = Mutex()
+
     val alarms = context.dataStore.data.map { decode(it[key] ?: "[]") }
     val theme = context.dataStore.data.map { it[themeKey] ?: "System" }
+    val audioBoost = context.dataStore.data.map { it[audioBoostKey] ?: 100 }
+    val defaultSound = context.dataStore.data.map { it[defaultSoundKey] ?: "dawn" }
+    val defaultSoundName = context.dataStore.data.map { it[defaultSoundNameKey] ?: "Soft Dawn" }
+    val defaultSnoozeMinutes = context.dataStore.data.map { it[defaultSnoozeKey] ?: 5 }
+    val defaultVibrate = context.dataStore.data.map { it[defaultVibrateKey] ?: true }
+    val updateServerUrl = context.dataStore.data.map {
+        it[updateServerUrlKey] ?: "https://raw.githubusercontent.com/aditya/wakeup-alarm/main/version.json"
+    }
+
     suspend fun setTheme(value: String) { context.dataStore.edit { it[themeKey] = value } }
+    suspend fun setAudioBoost(value: Int) { context.dataStore.edit { it[audioBoostKey] = value.coerceIn(100, 200) } }
+    suspend fun setDefaultSound(sound: String, name: String) { context.dataStore.edit { it[defaultSoundKey] = sound; it[defaultSoundNameKey] = name } }
+    suspend fun setDefaultSnoozeMinutes(minutes: Int) { context.dataStore.edit { it[defaultSnoozeKey] = minutes } }
+    suspend fun setDefaultVibrate(vibrate: Boolean) { context.dataStore.edit { it[defaultVibrateKey] = vibrate } }
+    suspend fun setUpdateServerUrl(url: String) { context.dataStore.edit { it[updateServerUrlKey] = url } }
+
     private suspend fun change(block: (List<Alarm>) -> List<Alarm>) = mutex.withLock {
         context.dataStore.edit { prefs -> prefs[key] = encode(block(decode(prefs[key] ?: "[]"))) }
         Scheduler(context).sync(alarms.first())

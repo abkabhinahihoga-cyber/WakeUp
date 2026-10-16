@@ -1,7 +1,7 @@
 package com.aditya.wakeup
 
 import android.Manifest
-import android.app.*
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
@@ -17,9 +17,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,7 +54,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.FileInputStream
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -63,9 +69,29 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val theme by app.store.theme.collectAsStateWithLifecycle("System")
-            WakeUpTheme(theme) { Home(this, theme) }
+            var currentScreen by rememberSaveable { mutableStateOf("home") }
+            WakeUpTheme(theme) {
+                AnimatedContent(
+                    targetState = currentScreen,
+                    label = "screenTransition",
+                    transitionSpec = { fadeIn() togetherWith fadeOut() }
+                ) { screen ->
+                    when (screen) {
+                        "settings" -> SettingsScreen(
+                            activity = this@MainActivity,
+                            onNavigateBack = { currentScreen = "home" }
+                        )
+                        else -> Home(
+                            activity = this@MainActivity,
+                            theme = theme,
+                            onNavigateToSettings = { currentScreen = "settings" }
+                        )
+                    }
+                }
+            }
         }
     }
+
     override fun onResume() {
         super.onResume()
         app.scope.launch {
@@ -88,21 +114,32 @@ private fun rememberNow(): Long {
 }
 
 @Composable
-private fun Home(activity: MainActivity, theme: String) {
+private fun Home(
+    activity: MainActivity,
+    theme: String,
+    onNavigateToSettings: () -> Unit
+) {
     val alarms by activity.app.store.alarms.collectAsStateWithLifecycle(emptyList())
+    val audioBoost by activity.app.store.audioBoost.collectAsStateWithLifecycle(100)
+    val defaultSound by activity.app.store.defaultSound.collectAsStateWithLifecycle("dawn")
+    val defaultSoundName by activity.app.store.defaultSoundName.collectAsStateWithLifecycle("Soft Dawn")
+    val defaultSnooze by activity.app.store.defaultSnoozeMinutes.collectAsStateWithLifecycle(5)
+    val defaultVibrate by activity.app.store.defaultVibrate.collectAsStateWithLifecycle(true)
+
     var editing by remember { mutableStateOf<Alarm?>(null) }
     var deleting by remember { mutableStateOf<Alarm?>(null) }
-    var setup by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val now = rememberNow()
     val snackbar = remember { SnackbarHostState() }
+
     var refresh by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
         lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
     }
+
     val exactAllowed = remember(refresh) { Scheduler(activity).allowed() }
     val notifications = remember(refresh) { NotificationManagerCompat.from(activity).areNotificationsEnabled() }
     val channelReady = remember(refresh) { (activity.getSystemService(NotificationManager::class.java).getNotificationChannel("ringing")?.importance ?: NotificationManager.IMPORTANCE_HIGH) >= NotificationManager.IMPORTANCE_HIGH }
@@ -112,6 +149,21 @@ private fun Home(activity: MainActivity, theme: String) {
     val next = alarms.flatMap { listOf(if (it.enabled) it.nextAt else 0L, it.snoozeAt) }.filter { it > now }.minOrNull()
     fun perform(block: suspend () -> Unit) { scope.launch { runCatching { block() }.onFailure { error = it.message ?: "Could not save. Please try again." } } }
 
+    val currentHour = remember(now) {
+        ZonedDateTime.now(ZoneId.systemDefault()).hour
+    }
+    val greeting = when (currentHour) {
+        in 5..11 -> "Good morning, Aditya"
+        in 12..16 -> "Good afternoon, Aditya"
+        in 17..21 -> "Good evening, Aditya"
+        else -> "Good night, Aditya"
+    }
+    val dateText = remember(now) {
+        runCatching {
+            LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
+        }.getOrDefault("Today")
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -120,7 +172,14 @@ private fun Home(activity: MainActivity, theme: String) {
             ExtendedFloatingActionButton(
                 onClick = {
                     val soon = LocalTime.now().plusMinutes(5)
-                    editing = Alarm(hour = soon.hour, minute = soon.minute)
+                    editing = Alarm(
+                        hour = soon.hour,
+                        minute = soon.minute,
+                        sound = defaultSound,
+                        soundName = defaultSoundName,
+                        snoozeMinutes = defaultSnooze,
+                        vibrate = defaultVibrate
+                    )
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -143,23 +202,39 @@ private fun Home(activity: MainActivity, theme: String) {
             contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 128.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Header: Branding & Settings button
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "WAKEUP",
-                        letterSpacing = 4.sp,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("⏰", fontSize = 18.sp)
+                            }
+                        }
+                        Text(
+                            "WAKEUP",
+                            letterSpacing = 4.sp,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     FilterChip(
-                        selected = setup,
-                        onClick = { setup = !setup },
-                        label = { Text("Settings & theme") },
+                        selected = false,
+                        onClick = onNavigateToSettings,
+                        label = { Text("Settings") },
+                        leadingIcon = { Text("⚙️", fontSize = 13.sp) },
                         trailingIcon = {
                             if (setupNeeded) {
                                 Box(
@@ -172,18 +247,59 @@ private fun Home(activity: MainActivity, theme: String) {
                         }
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text("Your time. Your rhythm.", fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold)
-                Text("Make every wake-up yours, Aditya.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+
+                Spacer(Modifier.height(14.dp))
+                Text(greeting, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.SemiBold)
+                Text(dateText, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
+
                 Spacer(Modifier.height(16.dp))
-                Card(shape = RoundedCornerShape(28.dp)) {
+
+                // Hero Card: Next Alarm
+                Card(
+                    shape = RoundedCornerShape(28.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer)))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    )
+                                )
+                            )
                             .padding(22.dp)
                     ) {
-                        Text("NEXT ALARM", fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "NEXT ALARM",
+                                fontSize = 11.sp,
+                                letterSpacing = 2.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                            if (audioBoost > 100) {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        "⚡ ${audioBoost}% Boost",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         Spacer(Modifier.height(10.dp))
                         Text(
                             next?.let { AlarmDisplay.time(it) } ?: "No alarms set",
@@ -191,6 +307,7 @@ private fun Home(activity: MainActivity, theme: String) {
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+
                         if (next != null) {
                             if (exactAllowed) {
                                 Spacer(Modifier.height(8.dp))
@@ -212,7 +329,7 @@ private fun Home(activity: MainActivity, theme: String) {
                                 Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.errorContainer) {
                                     Text(
                                         "Not scheduled · Tap Settings to allow",
-                                        Modifier.clickable { setup = true }.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        Modifier.clickable { onNavigateToSettings() }.padding(horizontal = 16.dp, vertical = 8.dp),
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onErrorContainer
@@ -220,43 +337,68 @@ private fun Home(activity: MainActivity, theme: String) {
                                 }
                             }
                         } else {
-                            Text("Tap '+ New alarm' below to get started.", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), modifier = Modifier.padding(top = 10.dp))
+                            Text("Tap '+ New alarm' below to schedule your wake-up rhythm.", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), modifier = Modifier.padding(top = 10.dp))
                         }
                     }
                 }
             }
 
-            item { PermissionPanel(activity, setup) }
-
-            if (setup) {
+            // Readiness notice banner if setup is needed
+            if (setupNeeded) {
                 item {
-                    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))) {
-                        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("APPEARANCE", fontSize = 12.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("System", "Light", "Dark").forEach { mode ->
-                                    FilterChip(
-                                        selected = theme == mode,
-                                        onClick = { perform { activity.app.store.setTheme(mode) } },
-                                        label = { Text(mode) }
-                                    )
-                                }
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToSettings() }
+                    ) {
+                        Row(
+                            Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("⚠️", fontSize = 22.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text("Alarm setup needs attention", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                                Text("Exact alarms or permissions are required for reliable ringing.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f))
                             }
+                            Text("Open Settings →", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
                         }
                     }
                 }
             }
 
+            // Alarms Section Header
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text("Your alarms", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${alarms.count { it.enabled }} active", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            "${alarms.count { it.enabled }} active",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
+            // Empty state
             if (alarms.isEmpty()) {
                 item {
-                    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
                         Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                             Text("Quiet for now. Add your first alarm below.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                         }
@@ -264,6 +406,7 @@ private fun Home(activity: MainActivity, theme: String) {
                 }
             }
 
+            // Alarms list items
             items(alarms.sortedWith(compareBy<Alarm> { it.hour }.thenBy { it.minute }), key = { it.id }) { alarm ->
                 val isRinging = alarm.ringing
                 Card(
@@ -278,14 +421,21 @@ private fun Home(activity: MainActivity, theme: String) {
                     Column(Modifier.padding(20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(AlarmDisplay.time(alarm.hour, alarm.minute), fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    AlarmDisplay.time(alarm.hour, alarm.minute),
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
                                 val occurrence = listOf(if (alarm.enabled) alarm.nextAt else 0L, alarm.snoozeAt).filter { it > 0 }.minOrNull()
-                                if (occurrence != null) {
+                                if (occurrence != null && alarm.enabled) {
                                     if (exactAllowed) {
                                         Text("${AlarmDisplay.day(occurrence, now)} · ${AlarmDisplay.remaining(occurrence, now)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     } else {
                                         Text("${AlarmDisplay.day(occurrence, now)} · Exact alarms disabled", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     }
+                                } else if (!alarm.enabled) {
+                                    Text("Off", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                                 }
                             }
                             Switch(
@@ -311,7 +461,8 @@ private fun Home(activity: MainActivity, theme: String) {
                             alarm.sound.startsWith("voice-") -> "🎙️ ${alarm.soundName}"
                             else -> "📁 ${alarm.soundName}"
                         }
-                        Text("${dayLabel(alarm.days)} · $soundBadge · ${alarm.snoozeMinutes} min snooze" + if (alarm.vibrate) " · Vibrate" else "", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        val boostBadge = if (audioBoost > 100) " · ⚡ ${audioBoost}%" else ""
+                        Text("${dayLabel(alarm.days)} · $soundBadge$boostBadge · ${alarm.snoozeMinutes}m snooze" + if (alarm.vibrate) " · Vibrate" else "", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
 
                         if (alarm.snoozeAt > 0) {
                             Spacer(Modifier.height(4.dp))
@@ -390,63 +541,6 @@ private fun dayLabel(days: Set<Int>): String = when {
     else -> days.sorted().joinToString(" · ") { listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[it - 1] }
 }
 
-@Composable
-private fun PermissionPanel(activity: ComponentActivity, expanded: Boolean) {
-    var refresh by remember { mutableIntStateOf(0) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
-        lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
-    }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
-    val exact = remember(refresh) { Scheduler(activity).allowed() }
-    val notifications = remember(refresh) { NotificationManagerCompat.from(activity).areNotificationsEnabled() }
-    val channelReady = remember(refresh) { (activity.getSystemService(NotificationManager::class.java).getNotificationChannel("ringing")?.importance ?: NotificationManager.IMPORTANCE_HIGH) >= NotificationManager.IMPORTANCE_HIGH }
-    val full = remember(refresh) { Build.VERSION.SDK_INT < 34 || activity.getSystemService(NotificationManager::class.java).canUseFullScreenIntent() }
-
-    if (expanded || !exact || !notifications || !full || !channelReady) {
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = if (!exact) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (exact && notifications && full && channelReady) "System settings & readiness" else "Finish alarm setup",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                if (!exact) Text("Alarms are saved, but cannot ring on time until exact alarms are allowed in system settings.", fontSize = 13.sp)
-
-                fun open(action: String) {
-                    runCatching {
-                        activity.startActivity(Intent(action, Uri.parse("package:${activity.packageName}")))
-                    }.onFailure {
-                        runCatching {
-                            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
-                        }
-                    }
-                }
-
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (!exact) Button(onClick = { Scheduler(activity).openExactAlarmSettings() }) { Text("Allow exact alarms") }
-                    if (!notifications) OutlinedButton(onClick = {
-                        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        else activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
-                    }) { Text("Allow notifications") }
-                    if (!full) OutlinedButton(onClick = { if (Build.VERSION.SDK_INT >= 34) open(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT) }) { Text("Allow full-screen") }
-                    if (!channelReady) OutlinedButton(onClick = { activity.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName).putExtra(Settings.EXTRA_CHANNEL_ID, "ringing")) }) { Text("Ringing channel") }
-                }
-
-                if (expanded) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Text("Keep alarm volume audible. On Moto and iQOO devices, ensure WakeUp's battery/background mode is unrestricted so scheduled alarms fire reliably even in deep sleep. After reboot, unlock your phone once to restore alarms.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { open(Settings.ACTION_APPLICATION_DETAILS_SETTINGS) }) { Text("App info & battery") }
-                        TextButton(onClick = { activity.startActivity(Intent(Settings.ACTION_SOUND_SETTINGS)) }) { Text("Sound settings") }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private sealed interface VoiceState {
     data object Idle : VoiceState
     data class Recording(val elapsedSeconds: Int) : VoiceState
@@ -457,6 +551,7 @@ private sealed interface VoiceState {
 @Composable
 private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> Unit, onSave: (Alarm) -> Unit) {
     var alarm by remember { mutableStateOf(initial) }
+    val audioBoost by activity.app.store.audioBoost.collectAsStateWithLifecycle(100)
     val now = rememberNow()
     val nextAt = AlarmTime.next(alarm.hour, alarm.minute, alarm.days, now)
     var confirmTomorrow by remember { mutableStateOf(false) }
@@ -468,16 +563,18 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
 
-    var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var previewResult by remember { mutableStateOf<SoundResult?>(null) }
     var isPreviewingCurrentSound by remember { mutableStateOf(false) }
+
+    var selectedRingtoneCategory by remember { mutableStateOf("All") }
 
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun stopPreview() {
-        previewPlayer?.release()
-        previewPlayer = null
+        previewResult?.release()
+        previewResult = null
         isPreviewingCurrentSound = false
         if (voiceState is VoiceState.Recorded) {
             voiceState = (voiceState as VoiceState.Recorded).copy(isPlaying = false)
@@ -774,16 +871,25 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                     }
                 }
 
-                // Section 5: Sound Selection
+                // Section 5: Sound Selection (15 Built-in + Boost + Voice + Custom)
                 item {
                     Card(
                         shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Text("ALARM SOUND", fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("ALARM SOUND", fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (audioBoost > 100) {
+                                    Text("⚡ ${audioBoost}% Boost Active", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
 
-                            // Current sound banner
+                            // Current sound preview banner
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
                                 color = MaterialTheme.colorScheme.surface
@@ -796,6 +902,12 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                     Column(Modifier.weight(1f)) {
                                         Text("Current selection", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(alarm.soundName, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                                        val soundSubtitle = when {
+                                            Sounds.isBundled(alarm.sound) -> "Built-in (${Ringtones.get(alarm.sound)?.category ?: "Tone"})"
+                                            alarm.sound.startsWith("voice-") -> "Personal voice recording"
+                                            else -> "Custom audio file"
+                                        }
+                                        Text(soundSubtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                                     }
                                     if (isPreviewingCurrentSound) {
                                         Button(onClick = { stopPreview() }) { Text("⏹ Stop") }
@@ -805,24 +917,18 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                             onClick = {
                                                 stopPreview()
                                                 runCatching {
-                                                    val res = Sounds.load(activity, alarm.sound, alarm.soundName, false)
+                                                    val res = Sounds.load(activity, alarm.sound, alarm.soundName, false, audioBoost)
                                                     if (res.isFallback && !Sounds.isBundled(alarm.sound)) {
                                                         message = "Custom audio unavailable (${res.fallbackReason ?: "error"}). Playing fallback."
                                                     } else {
                                                         message = null
                                                     }
-                                                    res.player.also { mp ->
-                                                        previewPlayer = mp
-                                                        isPreviewingCurrentSound = true
-                                                        mp.setOnCompletionListener { p ->
-                                                            p.release()
-                                                            if (previewPlayer == p) {
-                                                                previewPlayer = null
-                                                                isPreviewingCurrentSound = false
-                                                            }
-                                                        }
-                                                        mp.start()
+                                                    previewResult = res
+                                                    isPreviewingCurrentSound = true
+                                                    res.player.setOnCompletionListener {
+                                                        stopPreview()
                                                     }
+                                                    res.player.start()
                                                 }.onFailure { message = "Unable to preview sound: ${it.message}" }
                                             }
                                         ) { Text("▶ Preview") }
@@ -830,18 +936,41 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                 }
                             }
 
-                            // Built-in tones subsection
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Built-in Tones", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Sounds.bundled.forEach { (key, name) ->
+                            // 15 Built-in Tones Library with Category Tabs
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Built-in Library (15 Tones)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+
+                                // Category chips
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Ringtones.categories.forEach { cat ->
                                         FilterChip(
-                                            selected = alarm.sound == key,
+                                            selected = selectedRingtoneCategory == cat,
+                                            onClick = { selectedRingtoneCategory = cat },
+                                            label = { Text(cat) }
+                                        )
+                                    }
+                                }
+
+                                val displayedTones = remember(selectedRingtoneCategory) {
+                                    if (selectedRingtoneCategory == "All") Ringtones.items
+                                    else Ringtones.items.filter { it.category == selectedRingtoneCategory }
+                                }
+
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    displayedTones.forEach { tone ->
+                                        val isSelected = alarm.sound == tone.id
+                                        FilterChip(
+                                            selected = isSelected,
                                             onClick = {
                                                 stopPreview()
-                                                alarm = alarm.copy(sound = key, soundName = name)
+                                                alarm = alarm.copy(sound = tone.id, soundName = tone.title)
                                             },
-                                            label = { Text(name) }
+                                            label = {
+                                                Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                                    Text(tone.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                                    Text(tone.category, fontSize = 10.sp, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
                                         )
                                     }
                                 }
@@ -883,7 +1012,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                                 val mins = state.elapsedSeconds / 60
                                                 val secs = state.elapsedSeconds % 60
                                                 Text(
-                                                    String.format(java.util.Locale.US, "%d:%02d / 2:00", mins, secs),
+                                                    String.format(Locale.US, "%d:%02d / 2:00", mins, secs),
                                                     fontSize = 28.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -912,9 +1041,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     if (state.isPlaying) {
                                                         OutlinedButton(onClick = {
-                                                            previewPlayer?.release()
-                                                            previewPlayer = null
-                                                            voiceState = state.copy(isPlaying = false)
+                                                            stopPreview()
                                                         }) { Text("⏹ Stop") }
                                                     } else {
                                                         OutlinedButton(onClick = {
@@ -932,15 +1059,20 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                                                         setDataSource(fis.fd, 0, state.file.length())
                                                                     }
                                                                     prepare()
-                                                                    setOnCompletionListener { p ->
-                                                                        p.release()
-                                                                        if (previewPlayer == p) previewPlayer = null
-                                                                        voiceState = (voiceState as? VoiceState.Recorded)?.copy(isPlaying = false) ?: VoiceState.Idle
+                                                                    setOnCompletionListener {
+                                                                        stopPreview()
                                                                     }
                                                                 }
-                                                                previewPlayer = mp
-                                                                mp.start()
+                                                                val enhancer = AudioBoostManager.attachBoost(mp.audioSessionId, audioBoost)
+                                                                previewResult = SoundResult(
+                                                                    player = mp,
+                                                                    soundId = state.file.name,
+                                                                    soundName = "My voice",
+                                                                    isFallback = false,
+                                                                    enhancer = enhancer
+                                                                )
                                                                 voiceState = state.copy(isPlaying = true)
+                                                                mp.start()
                                                             }.onFailure { message = "Failed to play voice preview: ${it.message}" }
                                                         }) { Text("▶ Listen") }
                                                     }
