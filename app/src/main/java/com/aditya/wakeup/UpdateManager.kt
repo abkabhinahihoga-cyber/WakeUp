@@ -16,13 +16,15 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.UnknownHostException
+import java.security.MessageDigest
 
 data class UpdateInfo(
     val versionCode: Int,
     val versionName: String,
     val releaseNotes: String,
     val downloadUrl: String,
-    val apkSizeBytes: Long = 0L
+    val apkSizeBytes: Long = 0L,
+    val sha256: String? = null
 )
 
 sealed interface UpdateState {
@@ -43,15 +45,28 @@ class UpdateManager(private val context: Context) {
 
         val SAMPLE_MANIFEST_JSON = """
             {
-              "versionCode": 6,
-              "versionName": "1.5.0",
-              "releaseNotes": "• Simplified, clutter-free dashboard\n• Math dismissal challenge\n• Reliable in-app update installer",
-              "downloadUrl": "https://example.com/WakeUp-1.5.0-debug.apk",
-              "apkSizeBytes": 15000000
+              "versionCode": 7,
+              "versionName": "1.6.0",
+              "releaseNotes": "• Minimal home screen redesign\n• Centralized default ringtone library\n• 7 theme options\n• SHA-256 update integrity verification",
+              "downloadUrl": "https://example.com/WakeUp-1.6.0-debug.apk",
+              "apkSizeBytes": 15000000,
+              "sha256": "4a72d3e18f26b52e691234567890abcdef1234567890abcdef1234567890abcdef"
             }
         """.trimIndent()
 
         fun isUpdateAvailable(currentCode: Int, remoteCode: Int): Boolean = remoteCode > currentCode
+
+        fun calculateSha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
 
         fun evaluateUpdate(
             currentCode: Int,
@@ -60,14 +75,15 @@ class UpdateManager(private val context: Context) {
             remoteName: String,
             notes: String,
             downloadUrl: String,
-            size: Long
+            size: Long,
+            sha256: String? = null
         ): UpdateState {
             if (remoteCode <= 0 || downloadUrl.isBlank()) {
                 return UpdateState.Error("Invalid update manifest received from server: missing versionCode or downloadUrl.")
             }
 
             return if (isUpdateAvailable(currentCode, remoteCode)) {
-                val info = UpdateInfo(remoteCode, remoteName, notes, downloadUrl, size)
+                val info = UpdateInfo(remoteCode, remoteName, notes, downloadUrl, size, sha256)
                 UpdateState.Available(info, currentCode, currentName)
             } else {
                 UpdateState.UpToDate(currentCode, currentName)
@@ -82,7 +98,8 @@ class UpdateManager(private val context: Context) {
                 val notes = json.optString("releaseNotes", "New performance and feature updates.")
                 val downloadUrl = json.optString("downloadUrl", "")
                 val size = json.optLong("apkSizeBytes", 0L)
-                evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size)
+                val sha256 = json.optString("sha256", "").takeIf { it.isNotBlank() }
+                evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size, sha256)
             }.getOrElse {
                 // Fallback for JVM unit tests where android.jar's org.json.JSONObject is not mocked
                 val remoteCode = Regex("\"versionCode\"\\s*:\\s*(\\d+)").find(rawJson)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -90,16 +107,19 @@ class UpdateManager(private val context: Context) {
                 val notes = Regex("\"releaseNotes\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1) ?: "New performance and feature updates."
                 val downloadUrl = Regex("\"downloadUrl\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1) ?: ""
                 val size = Regex("\"apkSizeBytes\"\\s*:\\s*(\\d+)").find(rawJson)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-                evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size)
+                val sha256 = Regex("\"sha256\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+                evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size, sha256)
             }
         }
 
         /**
          * Connects to a URL following up to [maxRedirects] redirects (HTTP 301, 302, 303, 307, 308).
          * Necessary for GitHub Releases and cloud CDNs which issue 302/307 redirects to storage blobs.
+         * Enforces HTTPS downgrade protection: once starting on HTTPS, will not follow redirects to insecure HTTP.
          */
-        private fun openConnectionWithRedirects(urlString: String, maxRedirects: Int = 5): HttpURLConnection {
+        fun openConnectionWithRedirects(urlString: String, maxRedirects: Int = 5): HttpURLConnection {
             var currentUrl = urlString
+            val initialIsHttps = urlString.startsWith("https://", ignoreCase = true)
             var redirects = 0
             while (redirects < maxRedirects) {
                 val url = URL(currentUrl)
@@ -116,11 +136,15 @@ class UpdateManager(private val context: Context) {
                     if (location.isNullOrBlank()) {
                         throw IllegalStateException("HTTP redirect received ($code) with no Location header.")
                     }
-                    currentUrl = if (location.startsWith("http://") || location.startsWith("https://")) {
+                    val nextUrl = if (location.startsWith("http://", ignoreCase = true) || location.startsWith("https://", ignoreCase = true)) {
                         location
                     } else {
                         URL(url, location).toString()
                     }
+                    if (initialIsHttps && nextUrl.startsWith("http://", ignoreCase = true)) {
+                        throw SecurityException("Insecure HTTP redirect downgrade rejected from HTTPS to HTTP ($nextUrl).")
+                    }
+                    currentUrl = nextUrl
                     redirects++
                 } else {
                     return conn
@@ -143,15 +167,15 @@ class UpdateManager(private val context: Context) {
             @Suppress("DEPRECATION")
             pInfo.versionCode
         }
-        val name = pInfo.versionName ?: "1.5.0"
+        val name = pInfo.versionName ?: "1.6.0"
         return code to name
     }
 
     suspend fun checkForUpdates(serverUrl: String): UpdateState = withContext(Dispatchers.IO) {
         val trimmed = serverUrl.trim()
-        if (trimmed.isBlank() || trimmed.contains(PLACEHOLDER_URL_HOST)) {
+        if (trimmed.isBlank() || trimmed.contains(PLACEHOLDER_URL_HOST) || trimmed.contains("example.com")) {
             return@withContext UpdateState.NotConfigured(
-                "No update server URL is configured. Tap 'Configure URL' below to set your update manifest endpoint (e.g. your GitHub Releases raw JSON or S3 bucket)."
+                "Update server not configured. Set your manifest URL in Settings to check for updates."
             )
         }
 
@@ -167,7 +191,7 @@ class UpdateManager(private val context: Context) {
             val status = conn.responseCode
             if (status !in 200..299) {
                 return@withContext UpdateState.Error(
-                    "Server returned error code $status. Please ensure your update manifest JSON is hosted and accessible at this URL."
+                    "Server returned HTTP $status. Please ensure your update manifest JSON is hosted and accessible at this URL."
                 )
             }
 
@@ -217,7 +241,19 @@ class UpdateManager(private val context: Context) {
         conn.disconnect()
 
         require(targetFile.exists() && targetFile.length() > 50_000L) {
+            targetFile.delete()
             "Downloaded file appears incomplete (${targetFile.length()} bytes)."
+        }
+
+        // Verify SHA-256 integrity against manifest
+        val computedSha256 = calculateSha256(targetFile)
+        if (!info.sha256.isNullOrBlank()) {
+            if (!computedSha256.equals(info.sha256.trim(), ignoreCase = true)) {
+                targetFile.delete()
+                throw SecurityException(
+                    "Security verification failed: APK SHA-256 ($computedSha256) does not match expected manifest hash (${info.sha256})."
+                )
+            }
         }
 
         // Validate package integrity using Android's PackageManager
@@ -229,6 +265,17 @@ class UpdateManager(private val context: Context) {
         require(archiveInfo.packageName == context.packageName) {
             targetFile.delete()
             "Security verification failed: downloaded APK package name '${archiveInfo.packageName}' does not match '${context.packageName}'."
+        }
+
+        val archiveVersionCode = if (Build.VERSION.SDK_INT >= 28) {
+            archiveInfo.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION")
+            archiveInfo.versionCode
+        }
+        require(archiveVersionCode == info.versionCode) {
+            targetFile.delete()
+            "Version verification failed: downloaded APK version code ($archiveVersionCode) does not match manifest version code (${info.versionCode})."
         }
 
         targetFile

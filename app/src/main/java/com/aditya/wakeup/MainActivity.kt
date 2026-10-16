@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
@@ -22,7 +21,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,11 +33,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,12 +49,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.FileInputStream
-import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -113,6 +103,7 @@ private fun rememberNow(): Long {
     }.value
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Home(
     activity: MainActivity,
@@ -120,7 +111,6 @@ private fun Home(
     onNavigateToSettings: () -> Unit
 ) {
     val alarms by activity.app.store.alarms.collectAsStateWithLifecycle(emptyList())
-    val audioBoost by activity.app.store.audioBoost.collectAsStateWithLifecycle(100)
     val defaultSound by activity.app.store.defaultSound.collectAsStateWithLifecycle("dawn")
     val defaultSoundName by activity.app.store.defaultSoundName.collectAsStateWithLifecycle("Soft Dawn")
     val defaultSnooze by activity.app.store.defaultSnoozeMinutes.collectAsStateWithLifecycle(5)
@@ -152,21 +142,6 @@ private fun Home(
     val next = alarms.flatMap { listOf(if (it.enabled) it.nextAt else 0L, it.snoozeAt) }.filter { it > now }.minOrNull()
     fun perform(block: suspend () -> Unit) { scope.launch { runCatching { block() }.onFailure { error = it.message ?: "Could not save. Please try again." } } }
 
-    val currentHour = remember(now) {
-        ZonedDateTime.now(ZoneId.systemDefault()).hour
-    }
-    val greeting = when (currentHour) {
-        in 5..11 -> "Good morning, Aditya"
-        in 12..16 -> "Good afternoon, Aditya"
-        in 17..21 -> "Good evening, Aditya"
-        else -> "Good night, Aditya"
-    }
-    val dateText = remember(now) {
-        runCatching {
-            LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
-        }.getOrDefault("Today")
-    }
-
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -178,6 +153,7 @@ private fun Home(
                     editing = Alarm(
                         hour = soon.hour,
                         minute = soon.minute,
+                        label = "",
                         sound = defaultSound,
                         soundName = defaultSoundName,
                         snoozeMinutes = defaultSnooze,
@@ -206,50 +182,36 @@ private fun Home(
                     end = inset.calculateEndPadding(layoutDirection)
                 ),
             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 108.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Compact Header: Logo, Greeting & Settings
+            // Minimal Header: Compact Title & Settings Icon
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("⏰", fontSize = 16.sp)
-                            Text(
-                                "WAKEUP",
-                                letterSpacing = 3.sp,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("⏰", fontSize = 18.sp)
                         Text(
-                            greeting,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            "WakeUp",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            dateText,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
                         )
                     }
 
-                    FilterChip(
-                        selected = false,
+                    IconButton(
                         onClick = onNavigateToSettings,
-                        label = { Text("Settings", fontSize = 12.sp) },
-                        leadingIcon = { Text("⚙️", fontSize = 12.sp) },
-                        trailingIcon = {
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Text("⚙️", fontSize = 18.sp)
                             if (setupNeeded) {
                                 Box(
                                     modifier = Modifier
@@ -259,161 +221,144 @@ private fun Home(
                                 )
                             }
                         }
-                    )
+                    }
                 }
             }
 
-            // Compact Next-Alarm Card
+            // Slim Next-Alarm Summary Card
             item {
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (next != null) {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Text(
-                                    "NEXT ALARM",
-                                    fontSize = 10.sp,
-                                    letterSpacing = 1.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
-                                )
-                                if (audioBoost > 100) {
+                                Text("🔔", fontSize = 16.sp)
+                                Column {
                                     Text(
-                                        "⚡ ${audioBoost}%",
-                                        fontSize = 10.sp,
+                                        "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        AlarmDisplay.remaining(next, now),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                next?.let { AlarmDisplay.time(it) } ?: "No alarms set",
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            if (next != null) {
-                                if (exactAllowed) {
-                                    Text(
-                                        "${AlarmDisplay.day(next, now)} · ${AlarmDisplay.remaining(next, now)}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
-                                    )
-                                } else {
-                                    Text(
-                                        "Exact alarms disabled · Tap to resolve",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.clickable { onNavigateToSettings() }
-                                    )
-                                }
-                            } else {
+                            if (!exactAllowed) {
                                 Text(
-                                    "Tap '+ New alarm' below to schedule.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                    "⚠️ Exact off",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.clickable { onNavigateToSettings() }
                                 )
+                            }
+                        }
+                    }
+                } else {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "No upcoming alarms",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    val soon = LocalTime.now().plusMinutes(5)
+                                    editing = Alarm(
+                                        hour = soon.hour,
+                                        minute = soon.minute,
+                                        label = "",
+                                        sound = defaultSound,
+                                        soundName = defaultSoundName,
+                                        snoozeMinutes = defaultSnooze,
+                                        vibrate = defaultVibrate,
+                                        challengeType = defaultChallengeType,
+                                        challengeDifficulty = defaultChallengeDifficulty,
+                                        challengeQuestions = defaultChallengeQuestions
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("+ Add", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
             }
 
-            // Slim Readiness Notice (Shown only if permissions are missing)
+            // Readiness Notice (Only if system permissions are incomplete)
             if (setupNeeded) {
                 item {
                     Card(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onNavigateToSettings() }
                     ) {
                         Row(
-                            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("⚠️", fontSize = 16.sp)
+                            Text("⚠️", fontSize = 14.sp)
                             Text(
-                                "Setup required: tap here to grant alarm permissions.",
-                                fontSize = 12.sp,
+                                "Setup required: grant alarm permissions in Settings.",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 modifier = Modifier.weight(1f)
                             )
-                            Text("Fix →", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp)
+                            Text("Fix →", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 11.sp)
                         }
                     }
                 }
             }
 
-            // Alarms Section Header
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Your alarms", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            "${alarms.count { it.enabled }} active",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-
-            // Empty state
-            if (alarms.isEmpty()) {
-                item {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                    ) {
-                        Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                            Text("No alarms yet. Tap '+ New alarm' below to create one.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-                        }
-                    }
-                }
-            }
-
-            // Streamlined Alarm Cards
+            // Streamlined, Shorter Alarm Cards
             items(alarms.sortedWith(compareBy<Alarm> { it.hour }.thenBy { it.minute }), key = { it.id }) { alarm ->
                 val isRinging = alarm.ringing
+                var menuExpanded by remember { mutableStateOf(false) }
+
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = if (isRinging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                         else if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.surface
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     ),
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { editing = alarm }
                 ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -422,80 +367,95 @@ private fun Home(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     AlarmDisplay.time(alarm.hour, alarm.minute),
-                                    fontSize = 28.sp,
+                                    fontSize = 26.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                                 )
+
+                                // Concise single line metadata: Schedule · Sound (if overridden/custom) · Math
+                                val schedule = dayLabel(alarm.days)
+                                val soundOverrideTag = if (alarm.sound != defaultSound) " · ${alarm.soundName}" else ""
+                                val mathBadge = if (alarm.challengeType == "math") " · 🧠 Math" else ""
+
                                 Text(
-                                    alarm.label,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp,
-                                    color = if (alarm.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    "$schedule$soundOverrideTag$mathBadge",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+
+                                if (alarm.label.isNotBlank() && alarm.label != "Rise and shine, Aditya" && alarm.label != "Rise and shine") {
+                                    Text(
+                                        alarm.label,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+
+                                if (alarm.snoozeAt > 0) {
+                                    Text(
+                                        "Snoozed until ${AlarmDisplay.time(alarm.snoozeAt)}",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
 
-                            Switch(
-                                checked = alarm.enabled,
-                                onCheckedChange = { checked ->
-                                    perform {
-                                        activity.app.store.save(alarm.copy(enabled = checked))
-                                        if (checked && !Scheduler(activity).allowed()) {
-                                            val res = snackbar.showSnackbar("Alarm enabled, but exact alarms are disabled.", actionLabel = "Allow", duration = SnackbarDuration.Long)
-                                            if (res == SnackbarResult.ActionPerformed) Scheduler(activity).openExactAlarmSettings()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Switch(
+                                    checked = alarm.enabled,
+                                    onCheckedChange = { checked ->
+                                        perform {
+                                            activity.app.store.save(alarm.copy(enabled = checked))
+                                            if (checked && !Scheduler(activity).allowed()) {
+                                                val res = snackbar.showSnackbar("Alarm enabled, but exact alarms are disabled.", actionLabel = "Allow", duration = SnackbarDuration.Long)
+                                                if (res == SnackbarResult.ActionPerformed) Scheduler(activity).openExactAlarmSettings()
+                                            }
                                         }
                                     }
-                                }
-                            )
-                        }
+                                )
 
-                        Spacer(Modifier.height(4.dp))
-
-                        // Single concise metadata line
-                        val challengeBadge = if (alarm.challengeType == "math") " · 🧠 Math" else ""
-                        val boostBadge = if (audioBoost > 100) " · ⚡ ${audioBoost}%" else ""
-                        val occurrence = listOf(if (alarm.enabled) alarm.nextAt else 0L, alarm.snoozeAt).filter { it > 0 }.minOrNull()
-                        val timingInfo = if (alarm.enabled && occurrence != null) {
-                            if (exactAllowed) "${AlarmDisplay.day(occurrence, now)} · ${AlarmDisplay.remaining(occurrence, now)}"
-                            else "Exact alarms disabled"
-                        } else "Off"
-
-                        Text(
-                            "${dayLabel(alarm.days)} · ${alarm.soundName}$challengeBadge$boostBadge · $timingInfo",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-
-                        if (alarm.snoozeAt > 0) {
-                            Text(
-                                "Snoozed until " + AlarmDisplay.time(alarm.snoozeAt),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                        }
-
-                        // Subtle bottom actions
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                TextButton(onClick = { editing = alarm }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                                    Text("Edit", fontSize = 13.sp)
-                                }
-                                TextButton(onClick = { deleting = alarm }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                                    Text("Delete", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                                Box {
+                                    IconButton(
+                                        onClick = { menuExpanded = true },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Text("⋮", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuExpanded,
+                                        onDismissRequest = { menuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Edit") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                editing = alarm
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                menuExpanded = false
+                                                deleting = alarm
+                                            }
+                                        )
+                                    }
                                 }
                             }
-                            if (alarm.ringing) {
-                                FilledTonalButton(
-                                    onClick = { activity.startActivity(Intent(activity, AlarmActivity::class.java)) },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Text("🔔 Ringing · Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
+                        }
+
+                        if (alarm.ringing) {
+                            FilledTonalButton(
+                                onClick = { activity.startActivity(Intent(activity, AlarmActivity::class.java)) },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                Text("🔔 Ringing · Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -508,6 +468,8 @@ private fun Home(
         Editor(
             activity = activity,
             initial = alarm,
+            defaultSound = defaultSound,
+            defaultSoundName = defaultSoundName,
             onClose = { editing = null },
             onSave = { updated ->
                 perform {
@@ -536,10 +498,10 @@ private fun Home(
     deleting?.let { alarm ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete this alarm?") },
-            text = { Text("This will permanently remove '${alarm.label}'.") },
+            title = { Text("Delete alarm?") },
+            text = { Text("This will remove the alarm for ${AlarmDisplay.time(alarm.hour, alarm.minute)}.") },
             confirmButton = { TextButton(onClick = { perform { activity.app.store.delete(alarm.id); deleting = null } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Keep") } }
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } }
         )
     }
 
@@ -563,12 +525,19 @@ private fun dayLabel(days: Set<Int>): String = when {
 private sealed interface VoiceState {
     data object Idle : VoiceState
     data class Recording(val elapsedSeconds: Int) : VoiceState
-    data class Recorded(val file: File, val durationSeconds: Int, val isPlaying: Boolean = false) : VoiceState
+    data class Recorded(val file: File, val durationSeconds: Int) : VoiceState
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> Unit, onSave: (Alarm) -> Unit) {
+private fun Editor(
+    activity: ComponentActivity,
+    initial: Alarm,
+    defaultSound: String,
+    defaultSoundName: String,
+    onClose: () -> Unit,
+    onSave: (Alarm) -> Unit
+) {
     var alarm by remember { mutableStateOf(initial) }
     val audioBoost by activity.app.store.audioBoost.collectAsStateWithLifecycle(100)
     val now = rememberNow()
@@ -577,15 +546,16 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
     val timeState = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = false)
     LaunchedEffect(timeState.hour, timeState.minute) { alarm = alarm.copy(hour = timeState.hour, minute = timeState.minute) }
 
+    var isSoundOverrideExpanded by remember { mutableStateOf(alarm.sound != defaultSound) }
+    var selectedCategory by remember { mutableStateOf("All") }
+
     var voiceState by remember { mutableStateOf<VoiceState>(VoiceState.Idle) }
     var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
 
     var previewResult by remember { mutableStateOf<SoundResult?>(null) }
-    var isPreviewingCurrentSound by remember { mutableStateOf(false) }
-
-    var selectedRingtoneCategory by remember { mutableStateOf("All") }
+    var isPreviewing by remember { mutableStateOf(false) }
 
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -594,10 +564,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
     fun stopPreview() {
         previewResult?.release()
         previewResult = null
-        isPreviewingCurrentSound = false
-        if (voiceState is VoiceState.Recorded) {
-            voiceState = (voiceState as VoiceState.Recorded).copy(isPlaying = false)
-        }
+        isPreviewing = false
     }
 
     fun stopRecording(keep: Boolean) {
@@ -690,7 +657,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
         if (granted) startRecording() else message = "Microphone permission is needed to record your voice."
     }
 
-    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val importAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             stopPreview()
             busy = true
@@ -719,7 +686,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                 }
             }.onSuccess { (file, name) ->
                 alarm = alarm.copy(sound = file, soundName = name)
-                message = "Imported '$name' successfully!"
+                message = "Selected '$name' for this alarm."
             }.onFailure {
                 message = it.message ?: "Could not import this audio format."
             }
@@ -749,7 +716,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
 
     fun commit() {
         stopPreview()
-        onSave(alarm.copy(label = alarm.label.ifBlank { "Rise and shine, Aditya" }))
+        onSave(alarm.copy(label = alarm.label.trim()))
     }
 
     ModalBottomSheet(
@@ -765,7 +732,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    Text("Edit Alarm", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Alarm Settings", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "${AlarmDisplay.day(nextAt, now)}, ${AlarmDisplay.time(nextAt)}",
                         fontSize = 12.sp,
@@ -780,7 +747,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                 contentPadding = PaddingValues(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Section 1: Time Picker
+                // 1. Time Picker
                 item {
                     Column(
                         Modifier.fillMaxWidth(),
@@ -790,20 +757,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                     }
                 }
 
-                // Section 2: Alarm Name
-                item {
-                    OutlinedTextField(
-                        value = alarm.label,
-                        onValueChange = { alarm = alarm.copy(label = it.take(80)) },
-                        label = { Text("Alarm name") },
-                        placeholder = { Text("Rise and shine, Aditya") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp)
-                    )
-                }
-
-                // Section 3: Repeat Schedule
+                // 2. Repeat Schedule
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -849,165 +803,7 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                     }
                 }
 
-                // Section 4: Alarm Sound & Volume Boost
-                item {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("SOUND & AMPLIFICATION", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (audioBoost > 100) {
-                                    Text("⚡ ${audioBoost}% Boost", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-
-                            // Current sound preview banner
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(alarm.soundName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                        val subtitle = when {
-                                            Sounds.isBundled(alarm.sound) -> "Built-in tone (${Ringtones.get(alarm.sound)?.category ?: "Standard"})"
-                                            alarm.sound.startsWith("voice-") -> "Personal voice recording"
-                                            else -> "Custom audio file"
-                                        }
-                                        Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    if (isPreviewingCurrentSound) {
-                                        Button(onClick = { stopPreview() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                                            Text("⏹ Stop", fontSize = 13.sp)
-                                        }
-                                    } else {
-                                        OutlinedButton(
-                                            enabled = voiceState !is VoiceState.Recording && !busy,
-                                            onClick = {
-                                                stopPreview()
-                                                runCatching {
-                                                    val res = Sounds.load(activity, alarm.sound, alarm.soundName, false, audioBoost)
-                                                    previewResult = res
-                                                    isPreviewingCurrentSound = true
-                                                    res.player.setOnCompletionListener { stopPreview() }
-                                                    res.player.start()
-                                                }.onFailure { message = "Preview error: ${it.message}" }
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                        ) { Text("▶ Preview", fontSize = 13.sp) }
-                                    }
-                                }
-                            }
-
-                            // Built-in Tones (Filtered by Category)
-                            Text("Built-in Library (15 Tones)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Ringtones.categories.forEach { cat ->
-                                    FilterChip(
-                                        selected = selectedRingtoneCategory == cat,
-                                        onClick = { selectedRingtoneCategory = cat },
-                                        label = { Text(cat, fontSize = 11.sp) }
-                                    )
-                                }
-                            }
-
-                            val displayedTones = remember(selectedRingtoneCategory) {
-                                if (selectedRingtoneCategory == "All") Ringtones.items
-                                else Ringtones.items.filter { it.category == selectedRingtoneCategory }
-                            }
-
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                displayedTones.forEach { tone ->
-                                    val isSelected = alarm.sound == tone.id
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = {
-                                            stopPreview()
-                                            alarm = alarm.copy(sound = tone.id, soundName = tone.title)
-                                        },
-                                        label = { Text(tone.title, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
-                                    )
-                                }
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                            // Voice Recording
-                            Text("Personal Voice Memo", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            when (val state = voiceState) {
-                                is VoiceState.Idle -> {
-                                    OutlinedButton(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        enabled = !busy,
-                                        onClick = {
-                                            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                                startRecording()
-                                            } else {
-                                                micPermission.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
-                                        }
-                                    ) { Text("🎙️  Record Voice Wake-Up", fontSize = 13.sp) }
-                                }
-                                is VoiceState.Recording -> {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("● Recording: ${state.elapsedSeconds}s / 120s", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Button(
-                                                onClick = { stopRecording(keep = true) },
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                            ) { Text("Done", fontSize = 12.sp) }
-                                            OutlinedButton(onClick = { stopRecording(keep = false) }) { Text("Cancel", fontSize = 12.sp) }
-                                        }
-                                    }
-                                }
-                                is VoiceState.Recorded -> {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("✓ Voice (${state.durationSeconds}s)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            OutlinedButton(onClick = {
-                                                stopPreview()
-                                                alarm = alarm.copy(sound = state.file.name, soundName = "My voice")
-                                                voiceState = VoiceState.Idle
-                                            }) { Text("Use Voice", fontSize = 12.sp) }
-                                            TextButton(onClick = {
-                                                stopPreview()
-                                                state.file.delete()
-                                                voiceState = VoiceState.Idle
-                                            }) { Text("Discard", fontSize = 12.sp) }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Custom audio file import
-                            OutlinedButton(
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = voiceState !is VoiceState.Recording && !busy,
-                                onClick = { import.launch(arrayOf("audio/*")) }
-                            ) { Text("📁  Import Audio File (MP3, WAV, M4A)", fontSize = 13.sp) }
-                        }
-                    }
-                }
-
-                // Section 5: Dismissal Challenge (Optional Math Challenge)
+                // 3. Dismissal Challenge (Optional Math Challenge)
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -1061,19 +857,184 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                         )
                                     }
                                 }
-
-                                Text(
-                                    "When the alarm rings, you must solve these math problems to dismiss it. Snooze remains available.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    lineHeight = 15.sp
-                                )
                             }
                         }
                     }
                 }
 
-                // Section 6: Snooze & Vibration
+                // 4. Compact Sound Selection / Override
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            // Current sound preview card
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(alarm.soundName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                        val isDefault = alarm.sound == defaultSound
+                                        val desc = if (isDefault) "Default sound from Settings" else "Custom override for this alarm"
+                                        Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+
+                                    if (isPreviewing) {
+                                        Button(onClick = { stopPreview() }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                                            Text("⏹ Stop", fontSize = 12.sp)
+                                        }
+                                    } else {
+                                        OutlinedButton(
+                                            enabled = voiceState !is VoiceState.Recording && !busy,
+                                            onClick = {
+                                                stopPreview()
+                                                runCatching {
+                                                    val res = Sounds.load(activity, alarm.sound, alarm.soundName, false, audioBoost)
+                                                    previewResult = res
+                                                    isPreviewing = true
+                                                    res.player.setOnCompletionListener { stopPreview() }
+                                                    res.player.start()
+                                                }.onFailure { message = "Preview error: ${it.message}" }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                        ) { Text("▶ Preview", fontSize = 12.sp) }
+                                    }
+                                }
+                            }
+
+                            // Toggle to override sound
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = { isSoundOverrideExpanded = !isSoundOverrideExpanded },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text(if (isSoundOverrideExpanded) "Hide Sound Choices" else "Change Sound for this Alarm…", fontSize = 12.sp)
+                                }
+
+                                if (alarm.sound != defaultSound) {
+                                    TextButton(
+                                        onClick = {
+                                            stopPreview()
+                                            alarm = alarm.copy(sound = defaultSound, soundName = defaultSoundName)
+                                            isSoundOverrideExpanded = false
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                    ) { Text("Reset to Default", fontSize = 12.sp) }
+                                }
+                            }
+
+                            // Expanded sound choices
+                            if (isSoundOverrideExpanded) {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Ringtones.categories.forEach { cat ->
+                                        FilterChip(
+                                            selected = selectedCategory == cat,
+                                            onClick = { selectedCategory = cat },
+                                            label = { Text(cat, fontSize = 10.sp) }
+                                        )
+                                    }
+                                }
+
+                                val displayedTones = remember(selectedCategory) {
+                                    if (selectedCategory == "All") Ringtones.items
+                                    else Ringtones.items.filter { it.category == selectedCategory }
+                                }
+
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    displayedTones.forEach { tone ->
+                                        val isSelected = alarm.sound == tone.id
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                stopPreview()
+                                                alarm = alarm.copy(sound = tone.id, soundName = tone.title)
+                                            },
+                                            label = { Text(tone.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                                        )
+                                    }
+                                }
+
+                                // Personal voice recording
+                                when (val state = voiceState) {
+                                    is VoiceState.Idle -> {
+                                        OutlinedButton(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            enabled = !busy,
+                                            onClick = {
+                                                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                                    startRecording()
+                                                } else {
+                                                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                                }
+                                            }
+                                        ) { Text("🎙️  Record Personal Voice Memo", fontSize = 12.sp) }
+                                    }
+                                    is VoiceState.Recording -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("● Recording: ${state.elapsedSeconds}s", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Button(
+                                                    onClick = { stopRecording(keep = true) },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                                ) { Text("Done", fontSize = 11.sp) }
+                                                OutlinedButton(onClick = { stopRecording(keep = false) }) { Text("Cancel", fontSize = 11.sp) }
+                                            }
+                                        }
+                                    }
+                                    is VoiceState.Recorded -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("✓ Recorded (${state.durationSeconds}s)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Button(onClick = {
+                                                    stopPreview()
+                                                    alarm = alarm.copy(sound = state.file.name, soundName = "My voice")
+                                                    voiceState = VoiceState.Idle
+                                                }) { Text("Use Voice", fontSize = 11.sp) }
+                                                TextButton(onClick = {
+                                                    stopPreview()
+                                                    state.file.delete()
+                                                    voiceState = VoiceState.Idle
+                                                }) { Text("Discard", fontSize = 11.sp) }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = voiceState !is VoiceState.Recording && !busy,
+                                    onClick = { importAudio.launch(arrayOf("audio/*")) }
+                                ) { Text("📁  Import Audio File", fontSize = 12.sp) }
+                            }
+                        }
+                    }
+                }
+
+                // 5. Snooze & Vibration
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -1097,11 +1058,24 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Vibrate with sound", fontSize = 14.sp)
+                                Text("Vibrate with sound", fontSize = 13.sp)
                                 Switch(checked = alarm.vibrate, onCheckedChange = { alarm = alarm.copy(vibrate = it) })
                             }
                         }
                     }
+                }
+
+                // 6. Optional Label
+                item {
+                    OutlinedTextField(
+                        value = alarm.label,
+                        onValueChange = { alarm = alarm.copy(label = it.take(80)) },
+                        label = { Text("Alarm label (optional)") },
+                        placeholder = { Text("e.g. Work, Workout") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    )
                 }
 
                 message?.let {

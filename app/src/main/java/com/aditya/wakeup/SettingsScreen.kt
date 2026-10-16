@@ -1,13 +1,21 @@
 package com.aditya.wakeup
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,16 +35,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
+private sealed interface SettingsVoiceState {
+    data object Idle : SettingsVoiceState
+    data class Recording(val elapsedSeconds: Int) : SettingsVoiceState
+    data class Recorded(val file: File, val durationSeconds: Int) : SettingsVoiceState
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     activity: ComponentActivity,
@@ -64,20 +84,176 @@ fun SettingsScreen(
     // Test player state
     var testPlayer by remember { mutableStateOf<SoundResult?>(null) }
     var isTestingSound by remember { mutableStateOf(false) }
+    var previewSoundId by remember { mutableStateOf<String?>(null) }
+
+    // Sound Library selection state
+    var selectedToneCategory by remember { mutableStateOf("All") }
+    var voiceState by remember { mutableStateOf<SettingsVoiceState>(SettingsVoiceState.Idle) }
+    var recordingTimerJob by remember { mutableStateOf<Job?>(null) }
+    var recordingFile by remember { mutableStateOf<File?>(null) }
+    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
 
     fun stopTestSound() {
         testPlayer?.release()
         testPlayer = null
         isTestingSound = false
+        previewSoundId = null
+    }
+
+    fun playPreview(soundId: String, soundName: String) {
+        stopTestSound()
+        runCatching {
+            val res = Sounds.load(activity, soundId, soundName, false, audioBoost)
+            testPlayer = res
+            isTestingSound = true
+            previewSoundId = soundId
+            res.player.setOnCompletionListener { stopTestSound() }
+            res.player.start()
+        }.onFailure {
+            statusMessage = "Preview error: ${it.message}"
+        }
+    }
+
+    fun stopRecording(keep: Boolean) {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+        val current = recorder ?: return
+        val file = recordingFile
+        val elapsed = (voiceState as? SettingsVoiceState.Recording)?.elapsedSeconds ?: 0
+        val success = runCatching { current.stop() }.isSuccess
+        current.release()
+        recorder = null
+
+        if (keep && success && file != null && file.exists() && file.length() > 512L) {
+            file.setReadable(true, false)
+            val isValid = runCatching {
+                val test = MediaPlayer()
+                try {
+                    FileInputStream(file).use { fis ->
+                        test.setDataSource(fis.fd, 0, file.length())
+                    }
+                    test.prepare()
+                    test.duration > 0
+                } finally {
+                    test.release()
+                }
+            }.getOrDefault(false)
+
+            if (isValid) {
+                voiceState = SettingsVoiceState.Recorded(file, elapsed.coerceAtLeast(1))
+                statusMessage = null
+            } else {
+                file.delete()
+                recordingFile = null
+                voiceState = SettingsVoiceState.Idle
+                statusMessage = "Recorded audio was unreadable. Please record again."
+            }
+        } else {
+            file?.delete()
+            recordingFile = null
+            voiceState = SettingsVoiceState.Idle
+            if (keep) statusMessage = "Recording was too short. Speak clearly and try again."
+        }
+    }
+
+    fun startRecording() {
+        stopTestSound()
+        runCatching {
+            val folder = File(activity.filesDir, "audio").apply { mkdirs() }
+            val file = File(folder, "voice-${UUID.randomUUID()}.m4a")
+            recordingFile = file
+            @Suppress("DEPRECATION")
+            val mic = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(activity) else MediaRecorder()
+            recorder = mic
+            mic.setAudioSource(MediaRecorder.AudioSource.MIC)
+            mic.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            mic.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            mic.setAudioEncodingBitRate(128000)
+            mic.setAudioSamplingRate(44100)
+            mic.setOutputFile(file.absolutePath)
+            mic.setMaxDuration(120_000)
+            mic.setOnInfoListener { _, what, _ ->
+                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
+                    stopRecording(true)
+                }
+            }
+            mic.prepare()
+            mic.start()
+            voiceState = SettingsVoiceState.Recording(0)
+            recordingTimerJob?.cancel()
+            recordingTimerJob = scope.launch {
+                var seconds = 0
+                while (isActive && seconds < 120) {
+                    delay(1000)
+                    seconds++
+                    voiceState = SettingsVoiceState.Recording(seconds)
+                }
+            }
+        }.onFailure {
+            recorder?.release()
+            recorder = null
+            recordingFile?.delete()
+            recordingFile = null
+            recordingTimerJob?.cancel()
+            voiceState = SettingsVoiceState.Idle
+            statusMessage = "Microphone unavailable. Close other recording apps and try again."
+        }
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording() else statusMessage = "Microphone permission is needed to record your voice."
+    }
+
+    val importAudioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            stopTestSound()
+            busy = true
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val name = activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } ?: "Imported audio"
+                    val file = File(File(activity.filesDir, "audio").apply { mkdirs() }, "import-${UUID.randomUUID()}.audio")
+                    try {
+                        activity.contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { output ->
+                            val buffer = ByteArray(8192); var total = 0
+                            while (true) { val count = input.read(buffer); if (count < 0) break; total += count; require(total <= 25 * 1024 * 1024) { "Choose an audio file smaller than 25 MB." }; output.write(buffer, 0, count) }
+                        } }
+                        file.setReadable(true, false)
+                        val check = MediaPlayer()
+                        try {
+                            FileInputStream(file).use { fis ->
+                                check.setDataSource(fis.fd, 0, file.length())
+                            }
+                            check.prepare()
+                            require(check.duration > 0) { "Audio file is empty." }
+                        } finally {
+                            check.release()
+                        }
+                        file.name to name
+                    } catch (e: Exception) { file.delete(); throw e }
+                }
+            }.onSuccess { (file, name) ->
+                store.setDefaultSound(file, name)
+                statusMessage = "Set '$name' as default alarm sound!"
+            }.onFailure {
+                statusMessage = it.message ?: "Could not import this audio format."
+            }
+            busy = false
+        }
     }
 
     BackHandler {
         stopTestSound()
+        stopRecording(false)
         onNavigateBack()
     }
 
     DisposableEffect(Unit) {
-        onDispose { stopTestSound() }
+        onDispose {
+            stopTestSound()
+            stopRecording(false)
+        }
     }
 
     // Permission refresh observer
@@ -94,9 +270,6 @@ fun SettingsScreen(
     val exactAllowed = remember(refreshPermissions) { Scheduler(activity).allowed() }
     val notificationsAllowed = remember(refreshPermissions) { NotificationManagerCompat.from(activity).areNotificationsEnabled() }
     val fullScreenAllowed = remember(refreshPermissions) { Build.VERSION.SDK_INT < 34 || activity.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent() }
-    val channelReady = remember(refreshPermissions) { (activity.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel("ringing")?.importance ?: android.app.NotificationManager.IMPORTANCE_HIGH) >= android.app.NotificationManager.IMPORTANCE_HIGH }
-    val canInstall = remember(refreshPermissions) { updateManager.canInstallPackages() }
-
     val (currentVersionCode, currentVersionName) = remember { updateManager.getCurrentVersion() }
 
     fun perform(block: suspend () -> Unit) {
@@ -112,6 +285,7 @@ fun SettingsScreen(
                 navigationIcon = {
                     TextButton(onClick = {
                         stopTestSound()
+                        stopRecording(false)
                         onNavigateBack()
                     }) {
                         Text("← Back", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -132,60 +306,242 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Group 1: Appearance
-            item {
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("APPEARANCE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("System", "Light", "Dark").forEach { mode ->
-                                FilterChip(
-                                    selected = theme == mode,
-                                    onClick = { perform { store.setTheme(mode) } },
-                                    label = { Text(mode, fontSize = 13.sp) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Group 2: Default Alarm Behavior
+            // Group 1: Appearance & 7 Themes
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("DEFAULT ALARM BEHAVIOR", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("THEME & APPEARANCE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Choose from 7 customized color palettes. Your choice is instantly applied across all screens and preserved on restart.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
 
-                        // Default Tone
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Default ringtone: $defaultSoundName", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            var showToneDropdown by remember { mutableStateOf(false) }
-                            OutlinedButton(
-                                onClick = { showToneDropdown = !showToneDropdown },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(if (showToneDropdown) "Hide Tone Choices" else "Change Default Tone ($defaultSoundName)")
-                            }
-                            if (showToneDropdown) {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Ringtones.items.forEach { tone ->
-                                        FilterChip(
-                                            selected = defaultSound == tone.id,
-                                            onClick = { perform { store.setDefaultSound(tone.id, tone.title) } },
-                                            label = { Text(tone.title, fontSize = 12.sp) }
+                        // Theme Swatches Grid / Row
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            WakeUpThemeOptions.forEach { opt ->
+                                val isSelected = theme == opt.id
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                    modifier = Modifier
+                                        .clickable { perform { store.setTheme(opt.id) } }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Visual Swatch Dots
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy((-4).dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clip(CircleShape)
+                                                    .background(opt.backgroundColor)
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clip(CircleShape)
+                                                    .background(opt.primaryColor)
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                                            )
+                                        }
+                                        Text(
+                                            opt.name,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
 
-                        HorizontalDivider()
+            // Group 2: Centralized Default Alarm Sound Library (15 ringtones + voice memo + import)
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("DEFAULT ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "New alarms will automatically use this sound. Existing alarms strictly retain their saved sounds.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+
+                        // Current Default Sound Banner with Preview Button
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Current Default:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(defaultSoundName, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    val soundType = when {
+                                        Sounds.isBundled(defaultSound) -> "Built-in tone · ${Ringtones.get(defaultSound)?.category ?: "Standard"}"
+                                        defaultSound.startsWith("voice-") -> "Personal voice recording"
+                                        else -> "Imported audio file"
+                                    }
+                                    Text(soundType, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+                                if (isTestingSound && previewSoundId == defaultSound) {
+                                    Button(onClick = { stopTestSound() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                                        Text("⏹ Stop", fontSize = 13.sp)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { playPreview(defaultSound, defaultSoundName) },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) { Text("▶ Test", fontSize = 13.sp) }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                        // Category Chips for 15 Tones
+                        Text("Built-in Library (15 Tones)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Ringtones.categories.forEach { cat ->
+                                FilterChip(
+                                    selected = selectedToneCategory == cat,
+                                    onClick = { selectedToneCategory = cat },
+                                    label = { Text(cat, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        val displayedTones = remember(selectedToneCategory) {
+                            if (selectedToneCategory == "All") Ringtones.items
+                            else Ringtones.items.filter { it.category == selectedToneCategory }
+                        }
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            displayedTones.forEach { tone ->
+                                val isSelected = defaultSound == tone.id
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        perform { store.setDefaultSound(tone.id, tone.title) }
+                                        playPreview(tone.id, tone.title)
+                                    },
+                                    label = { Text(tone.title, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    trailingIcon = if (isSelected && isTestingSound && previewSoundId == tone.id) {
+                                        { Text("🔊", fontSize = 11.sp) }
+                                    } else null
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                        // Voice memo option for default sound
+                        Text("Record Voice Memo as Default", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        when (val state = voiceState) {
+                            is SettingsVoiceState.Idle -> {
+                                OutlinedButton(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !busy,
+                                    onClick = {
+                                        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                            startRecording()
+                                        } else {
+                                            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                ) { Text("🎙️  Record Voice Wake-Up", fontSize = 13.sp) }
+                            }
+                            is SettingsVoiceState.Recording -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("● Recording: ${state.elapsedSeconds}s / 120s", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Button(
+                                            onClick = { stopRecording(keep = true) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                        ) { Text("Done", fontSize = 12.sp) }
+                                        OutlinedButton(onClick = { stopRecording(keep = false) }) { Text("Cancel", fontSize = 12.sp) }
+                                    }
+                                }
+                            }
+                            is SettingsVoiceState.Recorded -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("✓ Voice Memo (${state.durationSeconds}s)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Button(onClick = {
+                                            perform { store.setDefaultSound(state.file.name, "My voice memo") }
+                                            voiceState = SettingsVoiceState.Idle
+                                            statusMessage = "Set voice memo as default sound!"
+                                        }) { Text("Use as Default", fontSize = 12.sp) }
+                                        TextButton(onClick = {
+                                            state.file.delete()
+                                            voiceState = SettingsVoiceState.Idle
+                                        }) { Text("Discard", fontSize = 12.sp) }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Import Audio File as Default
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = voiceState !is SettingsVoiceState.Recording && !busy,
+                            onClick = { importAudioLauncher.launch(arrayOf("audio/*")) }
+                        ) { Text("📁  Import Audio File (MP3, WAV, M4A)", fontSize = 13.sp) }
+
+                        statusMessage?.let { msg ->
+                            Text(msg, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            // Group 3: Default Alarm Preferences (Snooze, Vibrate, Challenge)
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("DEFAULT ALARM PREFERENCES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         // Default Snooze
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -209,7 +565,7 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Vibrate by default", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("Vibrate with alarm", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Switch(checked = defaultVibrate, onCheckedChange = { v -> perform { store.setDefaultVibrate(v) } })
                         }
 
@@ -235,7 +591,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Group 3: Audio Amplification Boost
+            // Group 4: Audio Amplification Boost
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -267,53 +623,16 @@ fun SettingsScreen(
                         )
 
                         Text(
-                            "Uses Android's native LoudnessEnhancer DSP effect to amplify sound beyond 100%. An integrated limiter protects speaker hardware from harsh clipping.",
+                            "Uses Android's native LoudnessEnhancer DSP to amplify sound up to 200%. Hardware protection limiter prevents harsh distortion or speaker damage.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp
                         )
-
-                        // Interactive Sound Test
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Boost Test: $defaultSoundName", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Text("Preview volume at $audioBoost%", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                                }
-                                if (isTestingSound) {
-                                    Button(onClick = { stopTestSound() }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                                        Text("⏹ Stop", fontSize = 13.sp)
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = {
-                                            stopTestSound()
-                                            runCatching {
-                                                val res = Sounds.load(activity, defaultSound, defaultSoundName, false, audioBoost)
-                                                testPlayer = res
-                                                isTestingSound = true
-                                                res.player.setOnCompletionListener { stopTestSound() }
-                                                res.player.start()
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) { Text("▶ Test", fontSize = 13.sp) }
-                                }
-                            }
-                        }
                     }
                 }
             }
 
-            // Group 4: Dismissal Challenges & Practice
+            // Group 5: Practice Math Challenge
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -322,7 +641,7 @@ fun SettingsScreen(
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("DISMISSAL CHALLENGES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            "Prevent accidental alarm dismissal by requiring math problems to be solved before the alarm turns off. Snooze remains available if you need extra rest.",
+                            "Prevent accidental alarm dismissal by requiring math problems to be solved before the alarm turns off.",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -331,13 +650,13 @@ fun SettingsScreen(
                             onClick = { showPracticeMathDialog = true },
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                         ) {
-                            Text("🧠  Practice Math Problem Now", fontSize = 13.sp)
+                            Text("🧠  Practice Sample Math Problem", fontSize = 13.sp)
                         }
                     }
                 }
             }
 
-            // Group 5: Permissions & Reliability
+            // Group 6: Permissions & Device Reliability
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -395,7 +714,7 @@ fun SettingsScreen(
                         HorizontalDivider()
 
                         Text(
-                            "Battery Advice: On Motorola and iQOO devices, set WakeUp's battery usage to 'Unrestricted' in system settings so scheduled alarms fire reliably in deep sleep.",
+                            "Battery Advice: On Motorola (Moto G85) and iQOO (Z7) devices, set WakeUp's battery usage to 'Unrestricted' in system settings so scheduled alarms fire reliably in deep sleep.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp,
@@ -405,7 +724,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Group 6: App Updates
+            // Group 7: App Updates & Integrity Verification
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -417,7 +736,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("APP UPDATES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("IN-APP UPDATES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("v$currentVersionName ($currentVersionCode)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
@@ -471,12 +790,12 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("Endpoint Not Configured", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                        Text("Update Server Not Configured", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                                         Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer, lineHeight = 15.sp)
                                         Button(
                                             onClick = { showUrlDialog = true },
                                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                        ) { Text("Configure Endpoint URL") }
+                                        ) { Text("Configure Manifest URL") }
                                     }
                                 }
                             }
@@ -489,6 +808,9 @@ fun SettingsScreen(
                                         Text("🎉 Update Available: v${state.info.versionName}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                                         Text("Release notes:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                                         Text(state.info.releaseNotes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
+                                        if (!state.info.sha256.isNullOrBlank()) {
+                                            Text("SHA-256 Checksum: ${state.info.sha256.take(12)}…", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace)
+                                        }
 
                                         if (downloadedApk != null) {
                                             Button(
@@ -573,7 +895,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Group 7: About & Diagnostics
+            // Group 8: About & Privacy
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -593,14 +915,15 @@ fun SettingsScreen(
         }
     }
 
-    // Configure URL Dialog with Sample JSON Manifest
+    // Configure URL Dialog with Sample JSON Manifest & SHA-256 field
     if (showUrlDialog) {
         var tempUrl by remember { mutableStateOf(updateServerUrl) }
+        @Suppress("DEPRECATION")
         val clipboard = LocalClipboardManager.current
 
         AlertDialog(
             onDismissRequest = { showUrlDialog = false },
-            title = { Text("Update Endpoint Configuration") },
+            title = { Text("Update Manifest URL") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -616,7 +939,7 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Expected Manifest Format:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                    Text("Expected Manifest Format (with SHA-256):", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surface,

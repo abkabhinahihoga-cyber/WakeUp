@@ -2,15 +2,17 @@
 
 A native Kotlin alarm app with Jetpack Compose Material 3, designed for Motorola Moto G85 running Android 16 and iQOO Z7 running Android 15. Minimum Android 8; compile/target SDK 36. Physical-device compatibility must be verified using the checklist below.
 
-## Version 1.1.0
+## Version 1.6.0
 
-- Visible 12-hour AM/PM time input, with matching time labels on the dashboard and ringing screen.
-- Live Today/Tomorrow/date and time-until-alarm previews in the editor, dashboard and individual alarm cards.
-- Explicit confirmation when a one-time selection has already passed today and must ring tomorrow. Future afternoon times stay today when PM is selected.
-- New alarms default to five minutes ahead. Quick Once/Daily/Weekdays presets, full weekday names, expanded editor, persistent Save button and save confirmation.
-- Refreshed green/teal gradient next-alarm card, clearer typography and differentiated disabled alarms.
-
-Install the 1.1.0 APK over 1.0.0 without uninstalling. Package identity and signing certificate are unchanged; existing alarms and recordings remain in app storage. Stored times retain their original meaning: an old 03:00 alarm is now shown as 3:00 AM; edit it to PM if afternoon was intended.
+- Minimal home screen redesign: removed oversized greeting, personalized alarm names from header, and redundant status tags.
+- Slim single-line / compact Next Alarm card with clean time, day, and countdown.
+- Shorter alarm cards with prominent time, concise schedule, contextual menu (`⋮`) for Edit/Delete, and 🧠 Math Challenge indicator.
+- Guaranteed floating Add Alarm button bottom clearance (`contentPadding = 108.dp`).
+- Centralized default alarm sound library in Settings: browse/preview all 15 ringtones across 4 categories (Gentle, Classic, Modern, Urgent), record voice memos, or import audio as default.
+- New alarms inherit the centralized default sound; existing alarms strictly retain their configured sounds.
+- Streamlined alarm editor prioritizing Time, Repeat, Dismissal Challenge, and compact optional Sound override.
+- 7 Material 3 theme palettes: System Default, Light, Dark, Midnight, Forest, Ocean, and Warm with visual color swatches.
+- Hardened in-app update installer with SHA-256 integrity verification, HTTPS downgrade prevention, and unconfigured endpoint handling.
 
 ## Features
 
