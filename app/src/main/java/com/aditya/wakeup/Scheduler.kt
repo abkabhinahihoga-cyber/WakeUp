@@ -1,5 +1,6 @@
 package com.aditya.wakeup
 
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -7,30 +8,59 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 
 class Scheduler(private val context: Context) {
     private val manager = context.getSystemService(AlarmManager::class.java)
-    fun allowed() = Build.VERSION.SDK_INT < 31 || manager.canScheduleExactAlarms()
+    fun allowed(): Boolean = Build.VERSION.SDK_INT < 31 || (manager?.canScheduleExactAlarms() == true)
+
+    fun openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")).apply {
+                if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { context.startActivity(intent) }.onFailure {
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")).apply {
+                    if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { context.startActivity(fallback) }
+            }
+        }
+    }
+
     private fun pending(id: String, at: Long, snooze: Boolean): PendingIntent = PendingIntent.getBroadcast(context, 0,
         Intent(context, AlarmReceiver::class.java).setAction("FIRE").setData(Uri.parse("wakeup://alarm/$id/$snooze"))
             .putExtra("id", id).putExtra("at", at).putExtra("snooze", snooze),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun cancel(id: String) { manager.cancel(pending(id, 0, false)); manager.cancel(pending(id, 0, true)) }
-    fun sync(alarms: List<Alarm>) {
+    fun cancel(id: String) { manager?.cancel(pending(id, 0, false)); manager?.cancel(pending(id, 0, true)) }
+    fun sync(alarms: List<Alarm>): Boolean {
+        if (!allowed()) {
+            alarms.forEach { cancel(it.id) }
+            return false
+        }
+        var allSuccess = true
         alarms.forEach { a ->
             cancel(a.id)
-            if (allowed()) {
-                if (a.enabled && a.nextAt > 0) schedule(a.id, a.nextAt, false)
-                if (a.snoozeAt > 0) schedule(a.id, a.snoozeAt, true)
+            if (a.enabled && a.nextAt > 0) {
+                if (!schedule(a.id, a.nextAt, false)) allSuccess = false
+            }
+            if (a.snoozeAt > 0) {
+                if (!schedule(a.id, a.snoozeAt, true)) allSuccess = false
             }
         }
+        return allSuccess
     }
-    private fun schedule(id: String, at: Long, snooze: Boolean) {
+    private fun schedule(id: String, at: Long, snooze: Boolean): Boolean {
+        if (!allowed()) return false
         val show = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        try { manager.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), pending(id, at, snooze)) }
-        catch (_: SecurityException) { /* Permission revoked during scheduling; setup panel reflects it. */ }
+        return try {
+            manager.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), pending(id, at, snooze))
+            true
+        } catch (_: SecurityException) {
+            false
+        }
     }
 }
 

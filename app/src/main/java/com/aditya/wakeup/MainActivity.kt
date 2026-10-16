@@ -86,6 +86,13 @@ private fun Home(activity: MainActivity, theme: String) {
     val scope = rememberCoroutineScope()
     val now = rememberNow()
     val snackbar = remember { SnackbarHostState() }
+    var refresh by remember { mutableIntStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
+        lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
+    }
+    val exactAllowed = remember(refresh) { Scheduler(activity).allowed() }
     val next = alarms.flatMap { listOf(if (it.enabled) it.nextAt else 0L, it.snoozeAt) }.filter { it > now }.minOrNull()
     fun perform(block: suspend () -> Unit) { scope.launch { runCatching { block() }.onFailure { error = it.message ?: "Could not save. Please try again." } } }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, snackbarHost = { SnackbarHost(snackbar) },
@@ -106,10 +113,18 @@ private fun Home(activity: MainActivity, theme: String) {
                         Spacer(Modifier.height(12.dp))
                         Text(next?.let { AlarmDisplay.time(it) } ?: "No alarms set", fontSize = 36.sp, fontWeight = FontWeight.SemiBold)
                         if (next != null) {
-                            Text(AlarmDisplay.day(next, now), fontSize = 18.sp)
-                            Spacer(Modifier.height(20.dp))
-                            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)) {
-                                Text(AlarmDisplay.remaining(next, now), Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontWeight = FontWeight.SemiBold)
+                            if (exactAllowed) {
+                                Text(AlarmDisplay.day(next, now), fontSize = 18.sp)
+                                Spacer(Modifier.height(20.dp))
+                                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)) {
+                                    Text(AlarmDisplay.remaining(next, now), Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontWeight = FontWeight.SemiBold)
+                                }
+                            } else {
+                                Text("Saved for ${AlarmDisplay.day(next, now)} · Exact alarms disabled", fontSize = 16.sp, color = MaterialTheme.colorScheme.error)
+                                Spacer(Modifier.height(14.dp))
+                                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.errorContainer) {
+                                    Text("Not scheduled · Tap Setup to allow", Modifier.clickable { setup = true }.padding(horizontal = 16.dp, vertical = 10.dp), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                                }
                             }
                         } else Text("Tap + New alarm to get started.", modifier = Modifier.padding(top = 12.dp))
                     }
@@ -128,11 +143,23 @@ private fun Home(activity: MainActivity, theme: String) {
                     Column(Modifier.padding(20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(AlarmDisplay.time(alarm.hour, alarm.minute), fontSize = 34.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                            Switch(checked = alarm.enabled, onCheckedChange = { perform { activity.app.store.save(alarm.copy(enabled = it)) } })
+                            Switch(checked = alarm.enabled, onCheckedChange = { checked ->
+                                perform {
+                                    activity.app.store.save(alarm.copy(enabled = checked))
+                                    if (checked && !Scheduler(activity).allowed()) {
+                                        val res = snackbar.showSnackbar("Alarm enabled, but exact alarms are disabled.", actionLabel = "Allow", duration = SnackbarDuration.Long)
+                                        if (res == SnackbarResult.ActionPerformed) Scheduler(activity).openExactAlarmSettings()
+                                    }
+                                }
+                            })
                         }
                         val occurrence = listOf(if (alarm.enabled) alarm.nextAt else 0L, alarm.snoozeAt).filter { it > 0 }.minOrNull()
                         if (occurrence != null) {
-                            Text("${AlarmDisplay.day(occurrence, now)} · ${AlarmDisplay.remaining(occurrence, now)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            if (exactAllowed) {
+                                Text("${AlarmDisplay.day(occurrence, now)} · ${AlarmDisplay.remaining(occurrence, now)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            } else {
+                                Text("${AlarmDisplay.day(occurrence, now)} · Not scheduled (exact alarm permission needed)", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
                             Spacer(Modifier.height(12.dp))
                         }
                         Text(alarm.label, fontWeight = FontWeight.Medium)
@@ -152,7 +179,16 @@ private fun Home(activity: MainActivity, theme: String) {
     editing?.let { alarm -> Editor(activity, alarm, onClose = { editing = null }, onSave = { updated -> perform {
         activity.app.store.save(updated); editing = null
         val saved = activity.app.store.alarms.first().first { it.id == updated.id }
-        snackbar.showSnackbar(if (saved.enabled) "${AlarmDisplay.day(saved.nextAt, System.currentTimeMillis())}, ${AlarmDisplay.time(saved.nextAt)} · ${AlarmDisplay.remaining(saved.nextAt, System.currentTimeMillis())}" else "Alarm saved · Off")
+        if (saved.enabled) {
+            if (Scheduler(activity).allowed()) {
+                snackbar.showSnackbar("${AlarmDisplay.day(saved.nextAt, System.currentTimeMillis())}, ${AlarmDisplay.time(saved.nextAt)} · ${AlarmDisplay.remaining(saved.nextAt, System.currentTimeMillis())}")
+            } else {
+                val res = snackbar.showSnackbar("Alarm saved for ${AlarmDisplay.day(saved.nextAt, System.currentTimeMillis())}, but exact alarms are disabled.", actionLabel = "Allow", duration = SnackbarDuration.Long)
+                if (res == SnackbarResult.ActionPerformed) Scheduler(activity).openExactAlarmSettings()
+            }
+        } else {
+            snackbar.showSnackbar("Alarm saved · Off")
+        }
     } }) }
     deleting?.let { alarm -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("Delete this alarm?") }, text = { Text(alarm.label) }, confirmButton = { TextButton(onClick = { perform { activity.app.store.delete(alarm.id); deleting = null } }) { Text("Delete") } }, dismissButton = { TextButton(onClick = { deleting = null }) { Text("Keep") } }) }
     error?.let { message -> AlertDialog(onDismissRequest = { error = null }, title = { Text("Something needs attention") }, text = { Text(message) }, confirmButton = { TextButton(onClick = { error = null }) { Text("OK") } }) }
@@ -182,9 +218,17 @@ private fun PermissionPanel(activity: ComponentActivity, expanded: Boolean) {
         Card(shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(if (exact && notifications && full && channelReady) "Ready for your morning" else "Finish alarm setup", fontWeight = FontWeight.Bold)
-                if (!exact) Text("Alarms are saved, but cannot ring on time until exact alarms are allowed.")
-                fun open(action: String) { activity.startActivity(Intent(action, Uri.parse("package:${activity.packageName}"))) }
-                if (!exact) TextButton(onClick = { if (Build.VERSION.SDK_INT >= 31) open(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM) }) { Text("Allow exact alarms") }
+                if (!exact) Text("Alarms are saved, but cannot ring on time until exact alarms are allowed in system settings.")
+                fun open(action: String) {
+                    runCatching {
+                        activity.startActivity(Intent(action, Uri.parse("package:${activity.packageName}")))
+                    }.onFailure {
+                        runCatching {
+                            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
+                        }
+                    }
+                }
+                if (!exact) TextButton(onClick = { Scheduler(activity).openExactAlarmSettings() }) { Text("Allow exact alarms") }
                 if (!notifications) TextButton(onClick = {
                     if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     else activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
@@ -290,9 +334,13 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(20.dp)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("${AlarmDisplay.day(nextAt, now)}, ${AlarmDisplay.time(nextAt)}", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                        Text(AlarmDisplay.remaining(nextAt, now), fontSize = 16.sp)
+                        if (Scheduler(activity).allowed()) {
+                            Text(AlarmDisplay.remaining(nextAt, now), fontSize = 16.sp)
+                        } else {
+                            Text("Exact alarms are disabled. This alarm cannot ring.", color = MaterialTheme.colorScheme.error, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            TextButton(onClick = { Scheduler(activity).openExactAlarmSettings() }) { Text("Allow exact alarms in system settings") }
+                        }
                         if (AlarmDisplay.rollsToTomorrow(alarm, now)) Text("This time has passed today. Choose a later time or check AM/PM to ring today.", fontSize = 12.sp)
-                        if (!Scheduler(activity).allowed()) Text("Allow exact alarms in Setup before this alarm can ring.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }
             }
@@ -343,7 +391,12 @@ private fun Editor(activity: ComponentActivity, initial: Alarm, onClose: () -> U
             Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
                 Button(enabled = !busy && recorder == null, onClick = {
                     if (alarm.enabled && AlarmDisplay.rollsToTomorrow(alarm, System.currentTimeMillis())) confirmTomorrow = true else commit()
-                }, modifier = Modifier.fillMaxWidth().height(54.dp)) { Text(if (alarm.enabled) "Save · ${AlarmDisplay.day(nextAt, now)}" else "Save disabled alarm") }
+                }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                    Text(if (alarm.enabled) {
+                        if (Scheduler(activity).allowed()) "Save · ${AlarmDisplay.day(nextAt, now)}"
+                        else "Save (exact alarms disabled)"
+                    } else "Save disabled alarm")
+                }
             }
         }
       }
