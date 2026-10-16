@@ -80,6 +80,7 @@ class AlarmReceiver : BroadcastReceiver() {
                         if (alarm?.challengeType == "math") {
                             val open = Intent(context, AlarmActivity::class.java).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                putExtra("START_SOLVING", true)
                             }
                             context.startActivity(open)
                         } else {

@@ -45,11 +45,11 @@ class UpdateManager(private val context: Context) {
 
         val SAMPLE_MANIFEST_JSON = """
             {
-              "versionCode": 7,
-              "versionName": "1.6.0",
-              "releaseNotes": "• Minimal home screen redesign\n• Centralized default ringtone library\n• 7 theme options\n• SHA-256 update integrity verification",
-              "downloadUrl": "https://example.com/WakeUp-1.6.0-debug.apk",
-              "apkSizeBytes": 15000000,
+              "versionCode": 8,
+              "versionName": "1.7.0",
+              "releaseNotes": "• Home screen UI polish (increased alarm card height & padding)\n• Math challenge ringing pause during solving with 30s inactivity resume\n• GitHub Releases update hosting support\n• Cryptographic SHA-256 package verification",
+              "downloadUrl": "https://github.com/OWNER/REPOSITORY/releases/download/v1.7.0/WakeUp-1.7.0-debug.apk",
+              "fileSizeBytes": 15000000,
               "sha256": "4a72d3e18f26b52e691234567890abcdef1234567890abcdef1234567890abcdef"
             }
         """.trimIndent()
@@ -97,7 +97,7 @@ class UpdateManager(private val context: Context) {
                 val remoteName = json.optString("versionName", "")
                 val notes = json.optString("releaseNotes", "New performance and feature updates.")
                 val downloadUrl = json.optString("downloadUrl", "")
-                val size = json.optLong("apkSizeBytes", 0L)
+                val size = if (json.has("fileSizeBytes")) json.optLong("fileSizeBytes", 0L) else json.optLong("apkSizeBytes", 0L)
                 val sha256 = json.optString("sha256", "").takeIf { it.isNotBlank() }
                 evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size, sha256)
             }.getOrElse {
@@ -106,7 +106,7 @@ class UpdateManager(private val context: Context) {
                 val remoteName = Regex("\"versionName\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1) ?: ""
                 val notes = Regex("\"releaseNotes\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1) ?: "New performance and feature updates."
                 val downloadUrl = Regex("\"downloadUrl\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1) ?: ""
-                val size = Regex("\"apkSizeBytes\"\\s*:\\s*(\\d+)").find(rawJson)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                val size = Regex("\"(?:fileSizeBytes|apkSizeBytes)\"\\s*:\\s*(\\d+)").find(rawJson)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
                 val sha256 = Regex("\"sha256\"\\s*:\\s*\"([^\"]+)\"").find(rawJson)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
                 evaluateUpdate(currentCode, currentName, remoteCode, remoteName, notes, downloadUrl, size, sha256)
             }
@@ -167,7 +167,7 @@ class UpdateManager(private val context: Context) {
             @Suppress("DEPRECATION")
             pInfo.versionCode
         }
-        val name = pInfo.versionName ?: "1.6.0"
+        val name = pInfo.versionName ?: "1.7.0"
         return code to name
     }
 

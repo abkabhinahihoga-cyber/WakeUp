@@ -262,24 +262,24 @@ private fun Home(
                 item {
                     if (next != null) {
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Text("🔔", fontSize = 16.sp)
-                                    Column {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(
                                             "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
                                             fontWeight = FontWeight.Bold,
@@ -306,14 +306,14 @@ private fun Home(
                         }
                     } else {
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -338,14 +338,14 @@ private fun Home(
             if (setupNeeded) {
                 item {
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onNavigateToSettings() }
                     ) {
                         Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -362,7 +362,7 @@ private fun Home(
                 }
             }
 
-            // Streamlined, Shorter Alarm Cards
+            // Streamlined Alarm Cards with 8-12% Height & Padding Increase
             items(alarms.sortedWith(compareBy<Alarm> { it.hour }.thenBy { it.minute }), key = { it.id }) { alarm ->
                 val isRinging = alarm.ringing
                 var menuExpanded by remember { mutableStateOf(false) }
@@ -373,18 +373,21 @@ private fun Home(
                         else if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.surface
                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     ),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { editing = alarm }
                 ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
                                 Text(
                                     AlarmDisplay.time(alarm.hour, alarm.minute),
                                     fontSize = 28.sp,
@@ -422,7 +425,7 @@ private fun Home(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Switch(
                                     checked = alarm.enabled,
@@ -437,12 +440,12 @@ private fun Home(
                                     }
                                 )
 
-                                Box {
+                                Box(contentAlignment = Alignment.Center) {
                                     IconButton(
                                         onClick = { menuExpanded = true },
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(40.dp)
                                     ) {
-                                        Text("⋮", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("⋮", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     DropdownMenu(
                                         expanded = menuExpanded,

@@ -134,4 +134,25 @@ class ThemeAndUpdatesTest {
             }
         }
     }
+
+    @Test
+    fun manifestParsingSupportsFileSizeBytesKey() {
+        val jsonWithFileSizeBytes = """
+            {
+              "versionCode": 8,
+              "versionName": "1.7.0",
+              "releaseNotes": "• Polish\n• Math pause",
+              "downloadUrl": "https://github.com/aditya/WakeUp/releases/download/v1.7.0/WakeUp-1.7.0-debug.apk",
+              "fileSizeBytes": 15012840,
+              "sha256": "4a72d3e18f26b52e691234567890abcdef1234567890abcdef1234567890abcdef"
+            }
+        """.trimIndent()
+
+        val state = UpdateManager.parseManifest(jsonWithFileSizeBytes, currentCode = 7, currentName = "1.6.0")
+        assertTrue(state is UpdateState.Available)
+        val available = state as UpdateState.Available
+        assertEquals(8, available.info.versionCode)
+        assertEquals("1.7.0", available.info.versionName)
+        assertEquals(15012840L, available.info.apkSizeBytes)
+    }
 }

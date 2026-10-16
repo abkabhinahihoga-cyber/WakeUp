@@ -160,7 +160,37 @@ object Sounds {
 
 class AlarmService : Service() {
     companion object {
+        const val ACTION_PAUSE_RINGING = "com.aditya.wakeup.ACTION_PAUSE_RINGING"
+        const val ACTION_RESUME_RINGING = "com.aditya.wakeup.ACTION_RESUME_RINGING"
+
         val currentFallbackNotice = MutableStateFlow<String?>(null)
+        val isRingingPaused = MutableStateFlow(false)
+
+        @Volatile
+        var activeInstance: AlarmService? = null
+            internal set
+
+        fun pauseRinging(context: Context) {
+            val inst = activeInstance
+            if (inst != null) {
+                inst.pausePlaybackAndVibration()
+            } else {
+                runCatching {
+                    context.startService(Intent(context, AlarmService::class.java).setAction(ACTION_PAUSE_RINGING))
+                }
+            }
+        }
+
+        fun resumeRinging(context: Context) {
+            val inst = activeInstance
+            if (inst != null) {
+                inst.resumePlaybackAndVibration()
+            } else {
+                runCatching {
+                    context.startService(Intent(context, AlarmService::class.java).setAction(ACTION_RESUME_RINGING))
+                }
+            }
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -194,7 +224,12 @@ class AlarmService : Service() {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(attributes)
                 .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener { /* maintain alarm focus */ }
+                .setOnAudioFocusChangeListener { focusChange ->
+                    Log.i("WakeUpSounds", "Alarm audio focus changed: $focusChange")
+                    if (focusChange == AudioManager.AUDIOFOCUS_GAIN && !isRingingPaused.value) {
+                        runCatching { player?.start() }
+                    }
+                }
                 .build()
             focusRequest = req
             val res = audioManager.requestAudioFocus(req)
@@ -219,7 +254,59 @@ class AlarmService : Service() {
         }
     }
 
+    fun pausePlaybackAndVibration() {
+        if (isRingingPaused.value) return
+        Log.i("WakeUpSounds", "Pausing alarm ringing (audio & vibration) for math challenge solving")
+        runCatching {
+            if (player?.isPlaying == true) {
+                player?.pause()
+            }
+        }
+        vibrator.cancel()
+        isRingingPaused.value = true
+    }
+
+    private var currentBoost: Int = 100
+
+    fun resumePlaybackAndVibration() {
+        if (!isRingingPaused.value) return
+        val alarm = currentAlarm ?: return
+        Log.i("WakeUpSounds", "Resuming alarm ringing (audio & vibration) from math challenge timeout/backgrounding")
+        requestAlarmAudioFocus()
+        runCatching {
+            player?.start()
+        }.onFailure {
+            scope.launch {
+                val soundResult = withContext(Dispatchers.IO) {
+                    Sounds.load(this@AlarmService, alarm.sound, alarm.soundName, true, currentBoost)
+                }
+                currentSoundResult = soundResult
+                player = soundResult.player
+                player?.start()
+            }
+        }
+        if (alarm.vibrate) {
+            vibrator.vibrate(
+                VibrationEffect.createWaveform(longArrayOf(0, 500, 600), 0),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build()
+            )
+        }
+        isRingingPaused.value = false
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        activeInstance = this
+        when (intent?.action) {
+            ACTION_PAUSE_RINGING -> {
+                pausePlaybackAndVibration()
+                return START_STICKY
+            }
+            ACTION_RESUME_RINGING -> {
+                resumePlaybackAndVibration()
+                return START_STICKY
+            }
+        }
+
         startForeground(41, notification(currentAlarm, false))
         if (!observing) {
             observing = true
@@ -233,6 +320,7 @@ class AlarmService : Service() {
                         requestAlarmAudioFocus()
 
                         val boost = runCatching { app.store.audioBoost.first() }.getOrDefault(100)
+                        currentBoost = boost
                         val soundResult = withContext(Dispatchers.IO) {
                             Sounds.load(this@AlarmService, alarm.sound, alarm.soundName, true, boost)
                         }
@@ -266,7 +354,12 @@ class AlarmService : Service() {
                 Intent(this, AlarmReceiver::class.java).setAction(name).setData(Uri.parse("wakeup://action/${a.id}/$name")).putExtra("id", a.id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             if (Scheduler(this).allowed()) builder.addAction(0, "Snooze ${a.snoozeMinutes} min", action("SNOOZE"))
             if (a.challengeType == "math") {
-                builder.addAction(0, "Solve Math to Dismiss", screen)
+                val solveIntent = Intent(this, AlarmActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra("START_SOLVING", true)
+                }
+                val solvePending = PendingIntent.getActivity(this, 1, solveIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.addAction(0, "Solve Math to Dismiss", solvePending)
             } else {
                 builder.addAction(0, "Dismiss", action("DISMISS"))
             }
@@ -275,6 +368,7 @@ class AlarmService : Service() {
     }
 
     private fun stopSound() {
+        isRingingPaused.value = false
         currentFallbackNotice.value = null
         abandonAlarmAudioFocus()
         timeout?.cancel()
@@ -286,5 +380,10 @@ class AlarmService : Service() {
         wakeLock = null
     }
 
-    override fun onDestroy() { stopSound(); scope.cancel(); super.onDestroy() }
+    override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
+        stopSound()
+        scope.cancel()
+        super.onDestroy()
+    }
 }
