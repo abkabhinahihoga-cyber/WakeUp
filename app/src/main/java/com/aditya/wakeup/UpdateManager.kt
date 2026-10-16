@@ -179,6 +179,12 @@ class UpdateManager(private val context: Context) {
             )
         }
 
+        if (!trimmed.startsWith("https://", ignoreCase = true)) {
+            return@withContext UpdateState.Error(
+                "Insecure URL: Update manifest endpoint must begin with 'https://'."
+            )
+        }
+
         val (currentCode, currentName) = getCurrentVersion()
         try {
             val conn = openConnectionWithRedirects(trimmed)
@@ -211,6 +217,10 @@ class UpdateManager(private val context: Context) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val targetFile = File(dir, "WakeUp-${info.versionName}.apk")
         if (targetFile.exists()) targetFile.delete()
+
+        if (!info.downloadUrl.startsWith("https://", ignoreCase = true)) {
+            throw SecurityException("Insecure download URL: APK must be downloaded over HTTPS.")
+        }
 
         val conn = openConnectionWithRedirects(info.downloadUrl)
         conn.apply {

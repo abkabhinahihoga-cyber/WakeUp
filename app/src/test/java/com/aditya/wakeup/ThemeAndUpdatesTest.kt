@@ -79,6 +79,17 @@ class ThemeAndUpdatesTest {
     }
 
     @Test
+    fun sha256MismatchIsDetected() {
+        val tempFile = File.createTempFile("sha_mismatch", ".txt").apply {
+            writeText("WakeUp-tampered-content")
+            deleteOnExit()
+        }
+        val actualHash = UpdateManager.calculateSha256(tempFile)
+        val manifestExpectedHash = "0000000000000000000000000000000000000000000000000000000000000000"
+        assertFalse("Tampered content hash must not match expected manifest hash", actualHash.equals(manifestExpectedHash, ignoreCase = true))
+    }
+
+    @Test
     fun existingAlarmRetainsCustomSoundWhenDefaultChanges() {
         val existingAlarm = Alarm(
             id = "alarm-1",
@@ -108,5 +119,19 @@ class ThemeAndUpdatesTest {
         // New alarm has new default
         assertEquals("pulse", newAlarm.sound)
         assertEquals("Vibrant Pulse", newAlarm.soundName)
+    }
+
+    @Test
+    fun mathChallengeGeneratesValidProblemsAcrossDifficulties() {
+        listOf("easy", "medium", "hard").forEach { difficulty ->
+            repeat(10) {
+                val problem = MathChallenge.generateProblem(difficulty)
+                assertTrue("Problem text should not be empty", problem.questionText.isNotBlank())
+                // Verify correctness logic
+                assertTrue("Correct answer must evaluate to true", MathChallenge.isAnswerCorrect(problem, problem.answer.toString()))
+                assertFalse("Incorrect answer must evaluate to false", MathChallenge.isAnswerCorrect(problem, (problem.answer + 99).toString()))
+                assertFalse("Invalid text must evaluate to false", MathChallenge.isAnswerCorrect(problem, "invalid"))
+            }
+        }
     }
 }

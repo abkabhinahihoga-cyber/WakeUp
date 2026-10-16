@@ -225,89 +225,109 @@ private fun Home(
                 }
             }
 
-            // Slim Next-Alarm Summary Card
-            item {
-                if (next != null) {
+            // Empty State (when no alarms exist)
+            if (alarms.isEmpty()) {
+                item {
                     Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(vertical = 36.dp, horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("⏰", fontSize = 42.sp)
+                            Text(
+                                "No Alarms Scheduled",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Tap '+ New alarm' below to create your first alarm.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Slim Next-Alarm Summary Card
+                item {
+                    if (next != null) {
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("🔔", fontSize = 16.sp)
-                                Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("🔔", fontSize = 16.sp)
+                                    Column {
+                                        Text(
+                                            "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            AlarmDisplay.remaining(next, now),
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                if (!exactAllowed) {
                                     Text(
-                                        "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Text(
-                                        AlarmDisplay.remaining(next, now),
+                                        "⚠️ Exact off",
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.clickable { onNavigateToSettings() }
                                     )
                                 }
                             }
-                            if (!exactAllowed) {
-                                Text(
-                                    "⚠️ Exact off",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.clickable { onNavigateToSettings() }
-                                )
-                            }
                         }
-                    }
-                } else {
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    } else {
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                "No upcoming alarms",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            TextButton(
-                                onClick = {
-                                    val soon = LocalTime.now().plusMinutes(5)
-                                    editing = Alarm(
-                                        hour = soon.hour,
-                                        minute = soon.minute,
-                                        label = "",
-                                        sound = defaultSound,
-                                        soundName = defaultSoundName,
-                                        snoozeMinutes = defaultSnooze,
-                                        vibrate = defaultVibrate,
-                                        challengeType = defaultChallengeType,
-                                        challengeDifficulty = defaultChallengeDifficulty,
-                                        challengeQuestions = defaultChallengeQuestions
-                                    )
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("+ Add", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "All alarms are turned off",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "Toggle switch to activate",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
                     }
@@ -367,20 +387,18 @@ private fun Home(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     AlarmDisplay.time(alarm.hour, alarm.minute),
-                                    fontSize = 26.sp,
+                                    fontSize = 28.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                                 )
 
-                                // Concise single line metadata: Schedule · Sound (if overridden/custom) · Math
                                 val schedule = dayLabel(alarm.days)
-                                val soundOverrideTag = if (alarm.sound != defaultSound) " · ${alarm.soundName}" else ""
                                 val mathBadge = if (alarm.challengeType == "math") " · 🧠 Math" else ""
 
                                 Text(
-                                    "$schedule$soundOverrideTag$mathBadge",
+                                    "$schedule$mathBadge",
                                     fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (alarm.enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                                 )
 
                                 if (alarm.label.isNotBlank() && alarm.label != "Rise and shine, Aditya" && alarm.label != "Rise and shine") {
@@ -404,7 +422,7 @@ private fun Home(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Switch(
                                     checked = alarm.enabled,
@@ -422,9 +440,9 @@ private fun Home(
                                 Box {
                                     IconButton(
                                         onClick = { menuExpanded = true },
-                                        modifier = Modifier.size(32.dp)
+                                        modifier = Modifier.size(36.dp)
                                     ) {
-                                        Text("⋮", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("⋮", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     DropdownMenu(
                                         expanded = menuExpanded,

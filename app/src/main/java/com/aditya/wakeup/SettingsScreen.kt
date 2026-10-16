@@ -603,7 +603,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("AUDIO AMPLIFICATION BOOST", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("DIGITAL AUDIO GAIN BOOST", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
                                 "$audioBoost% (${AudioBoostManager.formatGainDB(audioBoost)})",
                                 fontSize = 13.sp,
@@ -623,7 +623,7 @@ fun SettingsScreen(
                         )
 
                         Text(
-                            "Uses Android's native LoudnessEnhancer DSP to amplify sound up to 200%. Hardware protection limiter prevents harsh distortion or speaker damage.",
+                            "Applies digital gain (up to +6.0 dB at 200%) via Android's native LoudnessEnhancer DSP. An integrated hardware limiter prevents audio clipping. Note: Digital gain amplifies quieter tones, but does not guarantee 2× perceived loudness and strictly respects your Android system alarm volume level.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp
