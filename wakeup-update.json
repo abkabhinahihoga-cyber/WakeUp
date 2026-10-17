@@ -1,8 +1,8 @@
 {
   "versionCode": 9,
   "versionName": "1.8.0",
-  "releaseNotes": "• Smooth Jetpack Compose animations (theme color interpolation, LazyColumn item placement, navigation slide, ringing pulse)\n• Reduced-motion accessibility support (respects system animation scale)\n• UI polish across all 7 themes with subtle tonal borders and consistent 48dp touch targets\n• Dedicated developer credits and on-device privacy guarantee\n• In-app update reliability fixes (HttpURLConnection header configuration)",
+  "releaseNotes": "• Removed 'All alarms turned off' banner when no alarm is active\n• Redesigned Next Alarm card with countdown pill, clear schedule, and math challenge indicator\n• System setup notifications in notification drawer to easily grant required exact alarm permissions\n• In-app interactive permission cards with 1-tap Allow buttons\n• Smooth Jetpack Compose animations and 7 consistent themes",
   "downloadUrl": "https://github.com/abkabhinahihoga-cyber/WakeUp/releases/download/v1.8.0/WakeUp.apk",
-  "fileSizeBytes": 15061992,
-  "sha256": "ED0ECD3A514732DD676FCCAB9AF52A3D0DB054074B235FBFCCB5C17A0793A3D2"
+  "fileSizeBytes": 15476327,
+  "sha256": "D1328A3A1E91FE8B7348873160FA8E00261033E83A29F63B50143D972D394996"
 }
