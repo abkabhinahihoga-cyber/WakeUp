@@ -81,6 +81,9 @@ class UpdateManager(private val context: Context) {
             if (remoteCode <= 0 || downloadUrl.isBlank()) {
                 return UpdateState.Error("Invalid update manifest received from server: missing versionCode or downloadUrl.")
             }
+            if (downloadUrl.contains("OWNER/REPOSITORY", ignoreCase = true)) {
+                return UpdateState.Error("Invalid update manifest: downloadUrl contains unconfigured placeholder (OWNER/REPOSITORY).")
+            }
 
             return if (isUpdateAvailable(currentCode, remoteCode)) {
                 val info = UpdateInfo(remoteCode, remoteName, notes, downloadUrl, size, sha256)
@@ -116,18 +119,32 @@ class UpdateManager(private val context: Context) {
          * Connects to a URL following up to [maxRedirects] redirects (HTTP 301, 302, 303, 307, 308).
          * Necessary for GitHub Releases and cloud CDNs which issue 302/307 redirects to storage blobs.
          * Enforces HTTPS downgrade protection: once starting on HTTPS, will not follow redirects to insecure HTTP.
+         *
+         * All request properties, headers, and timeouts MUST be configured before invoking [HttpURLConnection.getResponseCode]
+         * or reading the response stream, otherwise an IllegalStateException ("Cannot set request property after connection is made")
+         * is thrown.
          */
-        fun openConnectionWithRedirects(urlString: String, maxRedirects: Int = 5): HttpURLConnection {
+        fun openConnectionWithRedirects(
+            urlString: String,
+            method: String = "GET",
+            headers: Map<String, String> = emptyMap(),
+            connectTimeoutMs: Int = 10000,
+            readTimeoutMs: Int = 25000,
+            maxRedirects: Int = 5
+        ): HttpURLConnection {
             var currentUrl = urlString
             val initialIsHttps = urlString.startsWith("https://", ignoreCase = true)
             var redirects = 0
             while (redirects < maxRedirects) {
                 val url = URL(currentUrl)
                 val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10000
-                    readTimeout = 25000
+                    connectTimeout = connectTimeoutMs
+                    readTimeout = readTimeoutMs
                     instanceFollowRedirects = false
-                    setRequestProperty("User-Agent", "WakeUp-Android")
+                    requestMethod = method
+                    headers.forEach { (key, value) ->
+                        setRequestProperty(key, value)
+                    }
                 }
                 val code = conn.responseCode
                 if (code in 300..399) {
@@ -187,15 +204,21 @@ class UpdateManager(private val context: Context) {
 
         val (currentCode, currentName) = getCurrentVersion()
         try {
-            val conn = openConnectionWithRedirects(trimmed)
-            conn.apply {
-                requestMethod = "GET"
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "WakeUp-Android/$currentName")
-            }
+            val headers = mapOf(
+                "Accept" to "application/json",
+                "User-Agent" to "WakeUp-Android/$currentName"
+            )
+            val conn = openConnectionWithRedirects(
+                trimmed,
+                method = "GET",
+                headers = headers,
+                connectTimeoutMs = 10000,
+                readTimeoutMs = 25000
+            )
 
             val status = conn.responseCode
             if (status !in 200..299) {
+                conn.disconnect()
                 return@withContext UpdateState.Error(
                     "Server returned HTTP $status. Please ensure your update manifest JSON is hosted and accessible at this URL."
                 )
@@ -207,6 +230,9 @@ class UpdateManager(private val context: Context) {
         } catch (e: UnknownHostException) {
             Log.w(TAG, "Network unavailable during update check: ${e.message}")
             UpdateState.Error("No internet connection available. Please connect to Wi-Fi or mobile data and try again.")
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.w(TAG, "Connection timeout during update check: ${e.message}")
+            UpdateState.Error("Connection timed out while reaching update server. Please check your internet connection and try again.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check for updates: ${e.message}", e)
             UpdateState.Error("Could not check for updates: ${e.localizedMessage ?: "Network or server timeout"}")
@@ -222,9 +248,22 @@ class UpdateManager(private val context: Context) {
             throw SecurityException("Insecure download URL: APK must be downloaded over HTTPS.")
         }
 
-        val conn = openConnectionWithRedirects(info.downloadUrl)
-        conn.apply {
-            requestMethod = "GET"
+        val (_, currentName) = getCurrentVersion()
+        val headers = mapOf(
+            "User-Agent" to "WakeUp-Android/$currentName"
+        )
+        val conn = openConnectionWithRedirects(
+            info.downloadUrl,
+            method = "GET",
+            headers = headers,
+            connectTimeoutMs = 15000,
+            readTimeoutMs = 60000
+        )
+
+        val status = conn.responseCode
+        if (status !in 200..299) {
+            conn.disconnect()
+            throw java.io.IOException("Download server returned HTTP $status while downloading update.")
         }
 
         val totalLength = conn.contentLength

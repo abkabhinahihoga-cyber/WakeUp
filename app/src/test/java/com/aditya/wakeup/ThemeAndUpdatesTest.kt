@@ -155,4 +155,54 @@ class ThemeAndUpdatesTest {
         assertEquals("1.7.0", available.info.versionName)
         assertEquals(15012840L, available.info.apkSizeBytes)
     }
+
+    @Test
+    fun manifestWithSameOrLowerVersionReportsUpToDate() {
+        val json = """
+            {
+              "versionCode": 8,
+              "versionName": "1.7.0",
+              "releaseNotes": "Latest features",
+              "downloadUrl": "https://github.com/abkabhinahihoga-cyber/WakeUp/releases/download/v1.7.0/WakeUp-1.7.0-debug.apk",
+              "fileSizeBytes": 15029224
+            }
+        """.trimIndent()
+
+        // Same version (v1.7.0 / 8 installed, 8 remote)
+        val stateSame = UpdateManager.parseManifest(json, currentCode = 8, currentName = "1.7.0")
+        assertTrue("Equal versionCode must report UpToDate", stateSame is UpdateState.UpToDate)
+        assertEquals(8, (stateSame as UpdateState.UpToDate).currentCode)
+
+        // Older remote version (v1.8.0 / 9 installed, 8 remote)
+        val stateOlder = UpdateManager.parseManifest(json, currentCode = 9, currentName = "1.8.0")
+        assertTrue("Lower versionCode must report UpToDate", stateOlder is UpdateState.UpToDate)
+    }
+
+    @Test
+    fun manifestWithPlaceholderDownloadUrlReportsError() {
+        val json = """
+            {
+              "versionCode": 9,
+              "versionName": "1.8.0",
+              "releaseNotes": "Future update",
+              "downloadUrl": "https://github.com/OWNER/REPOSITORY/releases/download/v1.8.0/WakeUp-1.8.0-debug.apk",
+              "fileSizeBytes": 15000000
+            }
+        """.trimIndent()
+
+        val state = UpdateManager.parseManifest(json, currentCode = 8, currentName = "1.7.0")
+        assertTrue("Placeholder OWNER/REPOSITORY must report Error", state is UpdateState.Error)
+        assertTrue((state as UpdateState.Error).message.contains("placeholder"))
+    }
+
+    @Test
+    fun malformedOrMissingFieldsManifestReportsError() {
+        val missingUrl = """{"versionCode": 9, "versionName": "1.8.0"}"""
+        val stateMissingUrl = UpdateManager.parseManifest(missingUrl, currentCode = 8, currentName = "1.7.0")
+        assertTrue("Missing downloadUrl must report Error", stateMissingUrl is UpdateState.Error)
+
+        val invalidCode = """{"versionCode": 0, "downloadUrl": "https://example.com/a.apk"}"""
+        val stateInvalidCode = UpdateManager.parseManifest(invalidCode, currentCode = 8, currentName = "1.7.0")
+        assertTrue("Invalid versionCode must report Error", stateInvalidCode is UpdateState.Error)
+    }
 }
