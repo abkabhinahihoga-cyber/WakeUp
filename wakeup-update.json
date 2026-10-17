@@ -1,8 +1,8 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7.0",
-  "releaseNotes": "• Home screen UI polish (increased alarm card height & padding, refined vertical spacing)\n• Math challenge ringing pause during solving with 30s inactivity auto-resume\n• Keypad interaction restarts 30s inactivity timer\n• Lifecycle-safe backgrounding protection (resumes ringing if app is backgrounded)\n• GitHub Releases update hosting support\n• Cryptographic SHA-256 package integrity verification",
-  "downloadUrl": "https://github.com/abkabhinahihoga-cyber/WakeUp/releases/download/v1.7.0/WakeUp-1.7.0-debug.apk",
-  "fileSizeBytes": 15399624,
-  "sha256": "A98ED0CABB017A0858D141C1228185DBD3C2136E22D3140AED2E93E00D2EEB4F"
+  "versionCode": 9,
+  "versionName": "1.8.0",
+  "releaseNotes": "• Smooth Jetpack Compose animations (theme color interpolation, LazyColumn item placement, navigation slide, ringing pulse)\n• Reduced-motion accessibility support (respects system animation scale)\n• UI polish across all 7 themes with subtle tonal borders and consistent 48dp touch targets\n• Dedicated developer credits and on-device privacy guarantee\n• In-app update reliability fixes (HttpURLConnection header configuration)",
+  "downloadUrl": "https://github.com/abkabhinahihoga-cyber/WakeUp/releases/download/v1.8.0/WakeUp.apk",
+  "fileSizeBytes": 15061992,
+  "sha256": "ED0ECD3A514732DD676FCCAB9AF52A3D0DB054074B235FBFCCB5C17A0793A3D2"
 }

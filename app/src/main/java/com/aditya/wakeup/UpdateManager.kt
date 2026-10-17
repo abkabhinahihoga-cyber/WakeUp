@@ -45,10 +45,10 @@ class UpdateManager(private val context: Context) {
 
         val SAMPLE_MANIFEST_JSON = """
             {
-              "versionCode": 8,
-              "versionName": "1.7.0",
-              "releaseNotes": "• Home screen UI polish (increased alarm card height & padding)\n• Math challenge ringing pause during solving with 30s inactivity resume\n• GitHub Releases update hosting support\n• Cryptographic SHA-256 package verification",
-              "downloadUrl": "https://github.com/OWNER/REPOSITORY/releases/download/v1.7.0/WakeUp-1.7.0-debug.apk",
+              "versionCode": 9,
+              "versionName": "1.8.0",
+              "releaseNotes": "• Smooth Jetpack Compose animations\n• Reduced motion support\n• UI polish across all 7 themes\n• Developer credits and on-device privacy guarantee\n• Update connection reliability fixes",
+              "downloadUrl": "https://github.com/OWNER/REPOSITORY/releases/download/v1.8.0/WakeUp-1.8.0-debug.apk",
               "fileSizeBytes": 15000000,
               "sha256": "4a72d3e18f26b52e691234567890abcdef1234567890abcdef1234567890abcdef"
             }
@@ -184,7 +184,7 @@ class UpdateManager(private val context: Context) {
             @Suppress("DEPRECATION")
             pInfo.versionCode
         }
-        val name = pInfo.versionName ?: "1.7.0"
+        val name = pInfo.versionName ?: "1.8.0"
         return code to name
     }
 
