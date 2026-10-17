@@ -14,6 +14,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -310,10 +313,11 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("THEME & APPEARANCE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("THEME & APPEARANCE", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "Choose from 7 customized color palettes. Your choice is instantly applied across all screens and preserved on restart.",
                             fontSize = 12.sp,
@@ -332,7 +336,7 @@ fun SettingsScreen(
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                    border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                                     modifier = Modifier
                                         .clickable { perform { store.setTheme(opt.id) } }
                                 ) {
@@ -379,10 +383,11 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("DEFAULT ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("DEFAULT ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "New alarms will automatically use this sound. Existing alarms strictly retain their saved sounds.",
                             fontSize = 12.sp,
@@ -538,10 +543,11 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("DEFAULT ALARM PREFERENCES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("DEFAULT ALARM PREFERENCES", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                         // Default Snooze
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -595,7 +601,8 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
@@ -603,7 +610,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("DIGITAL AUDIO GAIN BOOST", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("DIGITAL AUDIO GAIN BOOST", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Text(
                                 "$audioBoost% (${AudioBoostManager.formatGainDB(audioBoost)})",
                                 fontSize = 13.sp,
@@ -636,10 +643,11 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("DISMISSAL CHALLENGES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("DISMISSAL CHALLENGES", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "Prevent accidental alarm dismissal by requiring math problems to be solved before the alarm turns off.",
                             fontSize = 12.sp,
@@ -660,10 +668,11 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("PERMISSIONS & RELIABILITY", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("PERMISSIONS & RELIABILITY", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                         fun statusBadge(ok: Boolean) = if (ok) "✓ Granted" else "⚠️ Action Required"
 
@@ -728,7 +737,8 @@ fun SettingsScreen(
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
@@ -736,151 +746,164 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("IN-APP UPDATES", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("IN-APP UPDATES", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Text("v$currentVersionName ($currentVersionCode)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
-                        // Check status / action
-                        when (val state = updateState) {
-                            is UpdateState.Idle -> {
-                                Button(
-                                    onClick = {
-                                        updateState = UpdateState.Checking
-                                        scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Check for Updates")
-                                }
-                            }
-                            is UpdateState.Checking -> {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(12.dp))
-                                    Text("Checking for updates…", fontSize = 13.sp)
-                                }
-                            }
-                            is UpdateState.UpToDate -> {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF4CAF50).copy(alpha = 0.15f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("✓", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
-                                        Text("WakeUp is up to date (v$currentVersionName)", fontSize = 13.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                        // Check status / action with smooth AnimatedContent
+                        AnimatedContent(
+                            targetState = updateState,
+                            label = "updateStateTransition",
+                            transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(160)) }
+                        ) { state ->
+                            when (state) {
+                                is UpdateState.Idle -> {
+                                    Button(
+                                        onClick = {
+                                            updateState = UpdateState.Checking
+                                            scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Check for Updates")
                                     }
                                 }
-                                Button(
-                                    onClick = {
-                                        updateState = UpdateState.Checking
-                                        scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("Check Again") }
-                            }
-                            is UpdateState.NotConfigured -> {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("Update Server Not Configured", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                        Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer, lineHeight = 15.sp)
+                                is UpdateState.Checking -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text("Checking for updates…", fontSize = 13.sp)
+                                    }
+                                }
+                                is UpdateState.UpToDate -> {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text("✓", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                                                Text("WakeUp is up to date (v$currentVersionName)", fontSize = 13.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                                            }
+                                        }
                                         Button(
-                                            onClick = { showUrlDialog = true },
-                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                        ) { Text("Configure Manifest URL") }
-                                    }
-                                }
-                            }
-                            is UpdateState.Available -> {
-                                Card(
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                                ) {
-                                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("🎉 Update Available: v${state.info.versionName}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                        Text("Release notes:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                        Text(state.info.releaseNotes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
-                                        if (!state.info.sha256.isNullOrBlank()) {
-                                            Text("SHA-256 Checksum: ${state.info.sha256.take(12)}…", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace)
-                                        }
-
-                                        if (downloadedApk != null) {
-                                            Button(
-                                                onClick = {
-                                                    if (updateManager.canInstallPackages()) {
-                                                        updateManager.launchPackageInstaller(downloadedApk!!)
-                                                    } else {
-                                                        updateManager.openInstallPermissionSettings()
-                                                    }
-                                                },
-                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                            ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
-                                        } else {
-                                            Button(
-                                                onClick = {
-                                                    updateState = UpdateState.Downloading(0)
-                                                    scope.launch {
-                                                        runCatching {
-                                                            val file = updateManager.downloadApk(state.info) { progress ->
-                                                                updateState = UpdateState.Downloading(progress)
-                                                            }
-                                                            downloadedApk = file
-                                                            updateState = UpdateState.ReadyToInstall(file)
-                                                        }.onFailure {
-                                                            updateState = UpdateState.Error("Download failed: ${it.message}")
-                                                        }
-                                                    }
-                                                },
-                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                            ) { Text("Download Update (${(state.info.apkSizeBytes / 1024 / 1024).coerceAtLeast(1)} MB)") }
-                                        }
-                                    }
-                                }
-                            }
-                            is UpdateState.Downloading -> {
-                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Downloading update: ${state.progressPercent}%", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                    LinearProgressIndicator(
-                                        progress = { state.progressPercent / 100f },
-                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                                    )
-                                }
-                            }
-                            is UpdateState.ReadyToInstall -> {
-                                Button(
-                                    onClick = {
-                                        if (updateManager.canInstallPackages()) {
-                                            updateManager.launchPackageInstaller(state.apkFile)
-                                        } else {
-                                            updateManager.openInstallPermissionSettings()
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
-                            }
-                            is UpdateState.Error -> {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("Update Notice", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
-                                        Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer, lineHeight = 15.sp)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            TextButton(onClick = {
+                                            onClick = {
                                                 updateState = UpdateState.Checking
                                                 scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
-                                            }) { Text("Retry", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
-                                            TextButton(onClick = { showUrlDialog = true }) { Text("Configure URL", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("Check Again") }
+                                    }
+                                }
+                                is UpdateState.NotConfigured -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("Update Server Not Configured", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                            Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSecondaryContainer, lineHeight = 15.sp)
+                                            Button(
+                                                onClick = { showUrlDialog = true },
+                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                            ) { Text("Configure Manifest URL") }
+                                        }
+                                    }
+                                }
+                                is UpdateState.Available -> {
+                                    Card(
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                                    ) {
+                                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("🎉 Update Available: v${state.info.versionName}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                            Text("Release notes:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                            Text(state.info.releaseNotes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
+                                            if (!state.info.sha256.isNullOrBlank()) {
+                                                Text("SHA-256 Checksum: ${state.info.sha256.take(12)}…", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace)
+                                            }
+
+                                            if (downloadedApk != null) {
+                                                Button(
+                                                    onClick = {
+                                                        if (updateManager.canInstallPackages()) {
+                                                            updateManager.launchPackageInstaller(downloadedApk!!)
+                                                        } else {
+                                                            updateManager.openInstallPermissionSettings()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                                ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        updateState = UpdateState.Downloading(0)
+                                                        scope.launch {
+                                                            runCatching {
+                                                                val file = updateManager.downloadApk(state.info) { progress ->
+                                                                    updateState = UpdateState.Downloading(progress)
+                                                                }
+                                                                downloadedApk = file
+                                                                updateState = UpdateState.ReadyToInstall(file)
+                                                            }.onFailure {
+                                                                updateState = UpdateState.Error("Download failed: ${it.message}")
+                                                            }
+                                                        }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                                ) { Text("Download Update (${(state.info.apkSizeBytes / 1024 / 1024).coerceAtLeast(1)} MB)") }
+                                            }
+                                        }
+                                    }
+                                }
+                                is UpdateState.Downloading -> {
+                                    val animatedProgress by animateFloatAsState(
+                                        targetValue = state.progressPercent / 100f,
+                                        animationSpec = tween(150),
+                                        label = "downloadProgress"
+                                    )
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Downloading update: ${state.progressPercent}%", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                        LinearProgressIndicator(
+                                            progress = { animatedProgress },
+                                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                        )
+                                    }
+                                }
+                                is UpdateState.ReadyToInstall -> {
+                                    Button(
+                                        onClick = {
+                                            if (updateManager.canInstallPackages()) {
+                                                updateManager.launchPackageInstaller(state.apkFile)
+                                            } else {
+                                                updateManager.openInstallPermissionSettings()
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(if (updateManager.canInstallPackages()) "Install APK Now" else "Allow Install Permission") }
+                                }
+                                is UpdateState.Error -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("Update Notice", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
+                                            Text(state.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer, lineHeight = 15.sp)
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                TextButton(onClick = {
+                                                    updateState = UpdateState.Checking
+                                                    scope.launch { updateState = updateManager.checkForUpdates(updateServerUrl) }
+                                                }) { Text("Retry", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
+                                                TextButton(onClick = { showUrlDialog = true }) { Text("Configure URL", color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp) }
+                                            }
                                         }
                                     }
                                 }
@@ -895,20 +918,152 @@ fun SettingsScreen(
                 }
             }
 
-            // Group 8: About & Privacy
+            // Group 8: About & Privacy & Developer Credits
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("ABOUT & PRIVACY", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            "WakeUp is a dedicated personal alarm application engineered for Aditya. Designed with 100% on-device local storage, zero telemetry, zero analytics, and zero advertising. All custom audio recordings and alarms remain strictly private on this device.",
+                            "ABOUT & CREDITS",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 15.sp
+                            letterSpacing = 1.2.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
                         )
+
+                        // App Identity Banner
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("⏰", fontSize = 20.sp)
+                                }
+                                Column {
+                                    Text(
+                                        "WakeUp",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "v$currentVersionName (Build $currentVersionCode)",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Developer Credits (Distinguishing developer from requester)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "App",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "WakeUp",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Developer",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "Vaibhav Patel",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Built on demand of",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "Aditya Paul",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+
+                        // Privacy Commitment
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    "🔒 Privacy & Local Storage",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "WakeUp is engineered with 100% on-device local storage, zero telemetry, zero analytics, and zero advertising. All custom audio recordings, alarms, and settings remain strictly private on this device.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
                     }
                 }
             }

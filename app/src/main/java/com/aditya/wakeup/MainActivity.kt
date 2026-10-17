@@ -16,10 +16,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -64,7 +63,15 @@ class MainActivity : ComponentActivity() {
                 AnimatedContent(
                     targetState = currentScreen,
                     label = "screenTransition",
-                    transitionSpec = { fadeIn() togetherWith fadeOut() }
+                    transitionSpec = {
+                        if (targetState == "settings") {
+                            (slideInHorizontally(animationSpec = tween(260)) { it / 6 } + fadeIn(tween(260)))
+                                .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { -it / 6 } + fadeOut(tween(200)))
+                        } else {
+                            (slideInHorizontally(animationSpec = tween(260)) { -it / 6 } + fadeIn(tween(260)))
+                                .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { it / 6 } + fadeOut(tween(200)))
+                        }
+                    }
                 ) { screen ->
                     when (screen) {
                         "settings" -> SettingsScreen(
@@ -181,7 +188,7 @@ private fun Home(
                     start = inset.calculateStartPadding(layoutDirection),
                     end = inset.calculateEndPadding(layoutDirection)
                 ),
-            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Minimal Header: Compact Title & Settings Icon
@@ -208,16 +215,26 @@ private fun Home(
 
                     IconButton(
                         onClick = onNavigateToSettings,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Box(contentAlignment = Alignment.TopEnd) {
-                            Text("⚙️", fontSize = 18.sp)
+                            Text("⚙️", fontSize = 20.sp)
                             if (setupNeeded) {
+                                val infiniteTransition = rememberInfiniteTransition(label = "pulseTransition")
+                                val pulseAlpha by infiniteTransition.animateFloat(
+                                    initialValue = 0.4f,
+                                    targetValue = 1.0f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(900),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "pulseAlpha"
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
+                                        .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.error)
+                                        .background(MaterialTheme.colorScheme.error.copy(alpha = pulseAlpha))
                                 )
                             }
                         }
@@ -231,6 +248,7 @@ private fun Home(
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
                     ) {
                         Column(
@@ -240,7 +258,15 @@ private fun Home(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("⏰", fontSize = 42.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("⏰", fontSize = 32.sp)
+                            }
                             Text(
                                 "No Alarms Scheduled",
                                 fontSize = 16.sp,
@@ -258,76 +284,84 @@ private fun Home(
                     }
                 }
             } else {
-                // Slim Next-Alarm Summary Card
+                // Slim Next-Alarm Summary Card with animated transitions
                 item {
-                    if (next != null) {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                    AnimatedContent(
+                        targetState = next != null,
+                        label = "nextAlarmTransition",
+                        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(180)) }
+                    ) { hasNext ->
+                        if (hasNext && next != null) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.weight(1f)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("🔔", fontSize = 16.sp)
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("🔔", fontSize = 16.sp)
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            Text(
+                                                AlarmDisplay.remaining(next, now),
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                    }
+                                    if (!exactAllowed) {
                                         Text(
-                                            "Next: ${AlarmDisplay.time(next)} · ${AlarmDisplay.day(next, now)}",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                        Text(
-                                            AlarmDisplay.remaining(next, now),
+                                            "⚠️ Exact off",
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.clickable { onNavigateToSettings() }
                                         )
                                     }
                                 }
-                                if (!exactAllowed) {
+                            }
+                        } else {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Text(
-                                        "⚠️ Exact off",
+                                        "All alarms are turned off",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "Toggle switch to activate",
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.clickable { onNavigateToSettings() }
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
-                            }
-                        }
-                    } else {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "All alarms are turned off",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    "Toggle switch to activate",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
                             }
                         }
                     }
@@ -340,6 +374,7 @@ private fun Home(
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onNavigateToSettings() }
@@ -362,20 +397,29 @@ private fun Home(
                 }
             }
 
-            // Streamlined Alarm Cards with 8-12% Height & Padding Increase
+            // Streamlined Alarm Cards with Smooth Item Placement Animations & Feedback
             items(alarms.sortedWith(compareBy<Alarm> { it.hour }.thenBy { it.minute }), key = { it.id }) { alarm ->
                 val isRinging = alarm.ringing
                 var menuExpanded by remember { mutableStateOf(false) }
 
+                val targetBgColor = if (isRinging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                else if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.surface
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+
+                val cardBgColor by animateColorAsState(targetValue = targetBgColor, animationSpec = tween(220), label = "alarmCardBg")
+                val textAlpha by animateFloatAsState(targetValue = if (alarm.enabled || alarm.snoozeAt > 0) 1f else 0.45f, animationSpec = tween(200), label = "alarmTextAlpha")
+
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isRinging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                        else if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.surface
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    ),
+                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
                     shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .animateItem()
                         .clickable { editing = alarm }
                 ) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
@@ -390,36 +434,63 @@ private fun Home(
                             ) {
                                 Text(
                                     AlarmDisplay.time(alarm.hour, alarm.minute),
-                                    fontSize = 28.sp,
+                                    fontSize = 30.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (alarm.enabled || alarm.snoozeAt > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = textAlpha)
                                 )
 
                                 val schedule = dayLabel(alarm.days)
-                                val mathBadge = if (alarm.challengeType == "math") " · 🧠 Math" else ""
 
-                                Text(
-                                    "$schedule$mathBadge",
-                                    fontSize = 12.sp,
-                                    color = if (alarm.enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        schedule,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = textAlpha)
+                                    )
+
+                                    if (alarm.challengeType == "math") {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f * textAlpha),
+                                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * textAlpha))
+                                        ) {
+                                            Text(
+                                                "🧠 Math",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = textAlpha),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
 
                                 if (alarm.label.isNotBlank() && alarm.label != "Rise and shine, Aditya" && alarm.label != "Rise and shine") {
                                     Text(
                                         alarm.label,
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.primary,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = textAlpha),
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
 
                                 if (alarm.snoozeAt > 0) {
-                                    Text(
-                                        "Snoozed until ${AlarmDisplay.time(alarm.snoozeAt)}",
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 11.sp
-                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            "Snoozed until ${AlarmDisplay.time(alarm.snoozeAt)}",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -443,7 +514,7 @@ private fun Home(
                                 Box(contentAlignment = Alignment.Center) {
                                     IconButton(
                                         onClick = { menuExpanded = true },
-                                        modifier = Modifier.size(40.dp)
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Text("⋮", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
@@ -782,10 +853,11 @@ private fun Editor(
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("REPEAT SCHEDULE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("REPEAT SCHEDULE", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf("Once" to emptySet<Int>(), "Daily" to (1..7).toSet(), "Weekdays" to (1..5).toSet()).forEach { (label, days) ->
                                     FilterChip(
@@ -828,7 +900,8 @@ private fun Editor(
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
@@ -836,7 +909,7 @@ private fun Editor(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("DISMISSAL CHALLENGE", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("DISMISSAL CHALLENGE", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 if (alarm.challengeType == "math") {
                                     Text("Active", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -855,27 +928,33 @@ private fun Editor(
                                 )
                             }
 
-                            if (alarm.challengeType == "math") {
-                                Spacer(Modifier.height(2.dp))
-                                Text("Difficulty level", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf("easy" to "Easy (+, -)", "medium" to "Medium (+, -, ×)", "hard" to "Hard (×, ÷)").forEach { (level, title) ->
-                                        FilterChip(
-                                            selected = alarm.challengeDifficulty == level,
-                                            onClick = { alarm = alarm.copy(challengeDifficulty = level) },
-                                            label = { Text(title, fontSize = 11.sp) }
-                                        )
+                            AnimatedVisibility(
+                                visible = alarm.challengeType == "math",
+                                enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                                exit = fadeOut(tween(140)) + shrinkVertically(tween(180))
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text("Difficulty level", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf("easy" to "Easy (+, -)", "medium" to "Medium (+, -, ×)", "hard" to "Hard (×, ÷)").forEach { (level, title) ->
+                                            FilterChip(
+                                                selected = alarm.challengeDifficulty == level,
+                                                onClick = { alarm = alarm.copy(challengeDifficulty = level) },
+                                                label = { Text(title, fontSize = 11.sp) }
+                                            )
+                                        }
                                     }
-                                }
 
-                                Text("Number of questions: ${alarm.challengeQuestions}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(3, 5, 7, 10).forEach { count ->
-                                        FilterChip(
-                                            selected = alarm.challengeQuestions == count,
-                                            onClick = { alarm = alarm.copy(challengeQuestions = count) },
-                                            label = { Text("$count", fontSize = 12.sp) }
-                                        )
+                                    Text("Number of questions: ${alarm.challengeQuestions}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(3, 5, 7, 10).forEach { count ->
+                                            FilterChip(
+                                                selected = alarm.challengeQuestions == count,
+                                                onClick = { alarm = alarm.copy(challengeQuestions = count) },
+                                                label = { Text("$count", fontSize = 12.sp) }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -887,10 +966,11 @@ private fun Editor(
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("ALARM SOUND", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                             // Current sound preview card
                             Surface(
@@ -958,98 +1038,104 @@ private fun Editor(
                                 }
                             }
 
-                            // Expanded sound choices
-                            if (isSoundOverrideExpanded) {
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                            // Expanded sound choices with smooth AnimatedVisibility
+                            AnimatedVisibility(
+                                visible = isSoundOverrideExpanded,
+                                enter = fadeIn(tween(200)) + expandVertically(tween(240)),
+                                exit = fadeOut(tween(150)) + shrinkVertically(tween(200))
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Ringtones.categories.forEach { cat ->
-                                        FilterChip(
-                                            selected = selectedCategory == cat,
-                                            onClick = { selectedCategory = cat },
-                                            label = { Text(cat, fontSize = 10.sp) }
-                                        )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Ringtones.categories.forEach { cat ->
+                                            FilterChip(
+                                                selected = selectedCategory == cat,
+                                                onClick = { selectedCategory = cat },
+                                                label = { Text(cat, fontSize = 10.sp) }
+                                            )
+                                        }
                                     }
-                                }
 
-                                val displayedTones = remember(selectedCategory) {
-                                    if (selectedCategory == "All") Ringtones.items
-                                    else Ringtones.items.filter { it.category == selectedCategory }
-                                }
-
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    displayedTones.forEach { tone ->
-                                        val isSelected = alarm.sound == tone.id
-                                        FilterChip(
-                                            selected = isSelected,
-                                            onClick = {
-                                                stopPreview()
-                                                alarm = alarm.copy(sound = tone.id, soundName = tone.title)
-                                            },
-                                            label = { Text(tone.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
-                                        )
+                                    val displayedTones = remember(selectedCategory) {
+                                        if (selectedCategory == "All") Ringtones.items
+                                        else Ringtones.items.filter { it.category == selectedCategory }
                                     }
-                                }
 
-                                // Personal voice recording
-                                when (val state = voiceState) {
-                                    is VoiceState.Idle -> {
-                                        OutlinedButton(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            enabled = !busy,
-                                            onClick = {
-                                                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                                    startRecording()
-                                                } else {
-                                                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        displayedTones.forEach { tone ->
+                                            val isSelected = alarm.sound == tone.id
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = {
+                                                    stopPreview()
+                                                    alarm = alarm.copy(sound = tone.id, soundName = tone.title)
+                                                },
+                                                label = { Text(tone.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                                            )
+                                        }
+                                    }
+
+                                    // Personal voice recording
+                                    when (val state = voiceState) {
+                                        is VoiceState.Idle -> {
+                                            OutlinedButton(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                enabled = !busy,
+                                                onClick = {
+                                                    if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                                        startRecording()
+                                                    } else {
+                                                        micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                                    }
+                                                }
+                                            ) { Text("🎙️  Record Personal Voice Memo", fontSize = 12.sp) }
+                                        }
+                                        is VoiceState.Recording -> {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text("● Recording: ${state.elapsedSeconds}s", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Button(
+                                                        onClick = { stopRecording(keep = true) },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                                    ) { Text("Done", fontSize = 11.sp) }
+                                                    OutlinedButton(onClick = { stopRecording(keep = false) }) { Text("Cancel", fontSize = 11.sp) }
                                                 }
                                             }
-                                        ) { Text("🎙️  Record Personal Voice Memo", fontSize = 12.sp) }
-                                    }
-                                    is VoiceState.Recording -> {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text("● Recording: ${state.elapsedSeconds}s", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Button(
-                                                    onClick = { stopRecording(keep = true) },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                                ) { Text("Done", fontSize = 11.sp) }
-                                                OutlinedButton(onClick = { stopRecording(keep = false) }) { Text("Cancel", fontSize = 11.sp) }
+                                        }
+                                        is VoiceState.Recorded -> {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text("✓ Recorded (${state.durationSeconds}s)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Button(onClick = {
+                                                        stopPreview()
+                                                        alarm = alarm.copy(sound = state.file.name, soundName = "My voice")
+                                                        voiceState = VoiceState.Idle
+                                                    }) { Text("Use Voice", fontSize = 11.sp) }
+                                                    TextButton(onClick = {
+                                                        stopPreview()
+                                                        state.file.delete()
+                                                        voiceState = VoiceState.Idle
+                                                    }) { Text("Discard", fontSize = 11.sp) }
+                                                }
                                             }
                                         }
                                     }
-                                    is VoiceState.Recorded -> {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text("✓ Recorded (${state.durationSeconds}s)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Button(onClick = {
-                                                    stopPreview()
-                                                    alarm = alarm.copy(sound = state.file.name, soundName = "My voice")
-                                                    voiceState = VoiceState.Idle
-                                                }) { Text("Use Voice", fontSize = 11.sp) }
-                                                TextButton(onClick = {
-                                                    stopPreview()
-                                                    state.file.delete()
-                                                    voiceState = VoiceState.Idle
-                                                }) { Text("Discard", fontSize = 11.sp) }
-                                            }
-                                        }
-                                    }
-                                }
 
-                                OutlinedButton(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = voiceState !is VoiceState.Recording && !busy,
-                                    onClick = { importAudio.launch(arrayOf("audio/*")) }
-                                ) { Text("📁  Import Audio File", fontSize = 12.sp) }
+                                    OutlinedButton(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = voiceState !is VoiceState.Recording && !busy,
+                                        onClick = { importAudio.launch(arrayOf("audio/*")) }
+                                    ) { Text("📁  Import Audio File", fontSize = 12.sp) }
+                                }
                             }
                         }
                     }
@@ -1059,10 +1145,11 @@ private fun Editor(
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("SNOOZE & VIBRATION", fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("SNOOZE & VIBRATION", fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Snooze:", fontSize = 13.sp)
                                 listOf(5, 10, 15, 20).forEach { minutes ->

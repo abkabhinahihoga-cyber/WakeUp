@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -186,6 +189,17 @@ private fun StandardRingingScreen(
     errorMessage: String?,
     allowedToSnooze: Boolean
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ringingPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
     Column(
         Modifier
             .fillMaxSize()
@@ -202,10 +216,12 @@ private fun StandardRingingScreen(
             Surface(
                 shape = CircleShape,
                 color = Color(0xFFB7F36B).copy(alpha = 0.2f),
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier
+                    .size(30.dp)
+                    .scale(pulseScale)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("⏰", fontSize = 14.sp)
+                    Text("⏰", fontSize = 15.sp)
                 }
             }
             Text(
@@ -320,6 +336,17 @@ private fun MathChallengeRingingScreen(
     val inputError by session.errorMessage.collectAsState()
     val currentProblem = session.currentProblem ?: MathProblem("2 + 2", 4)
 
+    val infiniteTransition = rememberInfiniteTransition(label = "mathRingingPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mathPulseScale"
+    )
+
     if (!isSolving) {
         // Initial Ringing Mode: Sound and vibration are active. User must tap Solve Math or Snooze.
         Column(
@@ -338,10 +365,12 @@ private fun MathChallengeRingingScreen(
                 Surface(
                     shape = CircleShape,
                     color = Color(0xFFB7F36B).copy(alpha = 0.2f),
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier
+                        .size(30.dp)
+                        .scale(pulseScale)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("⏰", fontSize = 14.sp)
+                        Text("⏰", fontSize = 15.sp)
                     }
                 }
                 Text(
@@ -529,6 +558,7 @@ private fun MathChallengeRingingScreen(
             Card(
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E281C)),
+                border = BorderStroke(1.dp, Color(0xFFB7F36B).copy(alpha = 0.2f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -544,13 +574,22 @@ private fun MathChallengeRingingScreen(
                         color = Color(0xFF9EABA0)
                     )
 
-                    // Large readable equation
-                    Text(
-                        text = "${currentProblem.questionText} = ?",
-                        fontSize = 38.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    // Large readable equation with smooth slide & fade animation on question change
+                    AnimatedContent(
+                        targetState = currentProblem,
+                        label = "mathEquationAnim",
+                        transitionSpec = {
+                            (slideInHorizontally(animationSpec = tween(220)) { it / 3 } + fadeIn(tween(220)))
+                                .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { -it / 3 } + fadeOut(tween(160)))
+                        }
+                    ) { problem ->
+                        Text(
+                            text = "${problem.questionText} = ?",
+                            fontSize = 38.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
 
                     // User Input display box
                     Surface(
@@ -614,9 +653,17 @@ private fun MathChallengeRingingScreen(
                                     "⌫" -> Color(0xFF262D24)
                                     else -> Color(0xFF243022)
                                 },
+                                border = BorderStroke(
+                                    1.dp,
+                                    when (key) {
+                                        "C" -> Color(0xFFFF8A80).copy(alpha = 0.25f)
+                                        "⌫" -> Color(0xFFB0C0AD).copy(alpha = 0.2f)
+                                        else -> Color(0xFFB7F36B).copy(alpha = 0.12f)
+                                    }
+                                ),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(50.dp)
+                                    .height(52.dp)
                                     .clickable { session.onKeypadInput(key) }
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {

@@ -1,9 +1,15 @@
 package com.aditya.wakeup
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
 data class ThemeOption(
     val id: String,
@@ -106,8 +112,65 @@ fun getColorSchemeForTheme(mode: String, systemIsDark: Boolean): ColorScheme = w
 }
 
 @Composable
+fun animateColorScheme(target: ColorScheme): ColorScheme {
+    val context = LocalContext.current
+    val animScale = remember(context) {
+        runCatching {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            )
+        }.getOrDefault(1f)
+    }
+
+    val spec = if (animScale == 0f) snap() else tween<Color>(durationMillis = 240)
+
+    val primary by animateColorAsState(target.primary, spec, label = "th_primary")
+    val onPrimary by animateColorAsState(target.onPrimary, spec, label = "th_onPrimary")
+    val primaryContainer by animateColorAsState(target.primaryContainer, spec, label = "th_primaryContainer")
+    val onPrimaryContainer by animateColorAsState(target.onPrimaryContainer, spec, label = "th_onPrimaryContainer")
+    val secondary by animateColorAsState(target.secondary, spec, label = "th_secondary")
+    val onSecondary by animateColorAsState(target.onSecondary, spec, label = "th_onSecondary")
+    val secondaryContainer by animateColorAsState(target.secondaryContainer, spec, label = "th_secondaryContainer")
+    val onSecondaryContainer by animateColorAsState(target.onSecondaryContainer, spec, label = "th_onSecondaryContainer")
+    val background by animateColorAsState(target.background, spec, label = "th_background")
+    val onBackground by animateColorAsState(target.onBackground, spec, label = "th_onBackground")
+    val surface by animateColorAsState(target.surface, spec, label = "th_surface")
+    val onSurface by animateColorAsState(target.onSurface, spec, label = "th_onSurface")
+    val surfaceVariant by animateColorAsState(target.surfaceVariant, spec, label = "th_surfaceVariant")
+    val onSurfaceVariant by animateColorAsState(target.onSurfaceVariant, spec, label = "th_onSurfaceVariant")
+    val error by animateColorAsState(target.error, spec, label = "th_error")
+    val onError by animateColorAsState(target.onError, spec, label = "th_onError")
+    val errorContainer by animateColorAsState(target.errorContainer, spec, label = "th_errorContainer")
+    val onErrorContainer by animateColorAsState(target.onErrorContainer, spec, label = "th_onErrorContainer")
+
+    return target.copy(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceVariant,
+        error = error,
+        onError = onError,
+        errorContainer = errorContainer,
+        onErrorContainer = onErrorContainer
+    )
+}
+
+@Composable
 fun WakeUpTheme(mode: String = "System", content: @Composable () -> Unit) {
     val systemDark = isSystemInDarkTheme()
-    val colors = getColorSchemeForTheme(mode, systemDark)
-    MaterialTheme(colorScheme = colors, content = content)
+    val targetColors = getColorSchemeForTheme(mode, systemDark)
+    val animatedColors = animateColorScheme(targetColors)
+    MaterialTheme(colorScheme = animatedColors, content = content)
 }
